@@ -1,0 +1,57 @@
+---
+title: "flowMapper"
+author: "Matei"
+date: "2/24/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(flowMapper)
+library(ggraph)
+```
+
+## R Markdown
+
+Load the example dataset, originally from the FlowSOM package.
+
+```{r lymphocytes}
+data("lymphocytes")
+head(lymphocytes)
+```
+
+
+Learn the Mapper model, and use the Leiden method to detect communities in the Mapper graph.
+
+```{r mapper}
+set.seed(51)
+mapper <- flowMapper(lymphocytes, nodemax=100, intersectionSize=1)
+cl <- leidenClustering(mapper$gr)
+size <- sapply(mapper$nodes, length)
+
+ggraph(mapper$gr, layout = "kk") +
+  geom_edge_link(edge_alpha = 0.3) +
+  geom_node_point(aes(color = cl, size=size)) +
+  guides(size = FALSE) +
+  theme_graph(base_family = "sans")
+```
+
+Check the distribution of various markers in the Mapper graph, 
+and its agreement with the Leiden communities above.
+
+```{r distribution}
+params <- c("CD4", "CD8", "CD19", "NK1.1", "TCRyd")
+for(param in params) {
+  g <- ggraph(mapper$gr, layout = "kk") +
+    geom_edge_link(edge_alpha = 0.3) +
+    geom_node_point(aes(size=size, color=mapper$nodeMedians[,param])) +
+    scale_color_gradient(low = "black", high = "orange", name = param) +
+    guides(size = FALSE) +
+    theme_graph(base_family = "sans")
+
+  plot(g)
+}
+
+```
+
+
