@@ -33,16 +33,17 @@ getBins <- function(filter, nx = 10, ny = 10, overlap = 0.1, outlierCutoff = 10)
   return(bins)
 }
 
-clusterFibers <- function(data, bins, method = "kmeans", outlierCutoff = 50, nodemax = 1000) {
+clusterFibers <- function(data, bins, method = "kmeans", outlierCutoff = 50,
+                          nodemax, kmax) {
   if (method == "kmeans")
-    return(clusterFibersKmeans(data, bins, outlierCutoff, nodemax))
+    return(clusterFibersKmeans(data, bins, outlierCutoff, nodemax, kmax))
 
   # Enter more methods here
 
   stop("Invalid method chosen.")
 }
 
-clusterFibersKmeans <- function(data, bins, outlierCutoff, nodemax) {
+clusterFibersKmeans <- function(data, bins, outlierCutoff, nodemax, kmax) {
   nodes <- list()
 
   for (bin in bins) {
@@ -50,7 +51,7 @@ clusterFibersKmeans <- function(data, bins, outlierCutoff, nodemax) {
       next
 
     k <- ceiling(length(bin)/nodemax)
-    k <- min(k,20)
+    k <- min(k,kmax)
 
     if (k == 1) {
       nodes <- c(nodes, list(bin))
@@ -101,10 +102,12 @@ getAdjList <- function(nodes, M) {
   return(adjList)
 }
 
-
 getGraph <- function(bins, data, M = 10) {
   adjList <- getAdjList(bins, M)
   gr <- graph_from_adj_list(adjList, mode = "all")
+
+  E(gr)$weight <- rep(1, length(E(gr))) # for Leiden
+
   return(gr)
 }
 

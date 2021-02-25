@@ -6,10 +6,12 @@
 \usage{
 flowMapper(
   data,
+  scale = TRUE,
   nx = 10,
   ny = 10,
   overlap = 0.1,
   nodemax = 1000,
+  kmax = 20,
   intersectionSize = 10
 )
 }
