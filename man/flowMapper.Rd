@@ -12,7 +12,8 @@ flowMapper(
   overlap = 0.1,
   nodemax = 1000,
   kmax = 20,
-  intersectionSize = 10
+  intersectionSize = 10,
+  clusterMethod = "kmeans"
 )
 }
 \arguments{

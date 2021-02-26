@@ -4,6 +4,8 @@
 #' @import igraph
 #' @import ggraph
 #' @import leidenAlg
+#' @import e1071
+#' @import rdist
 NULL
 
 
@@ -23,16 +25,59 @@ NULL
 flowMapper <- function(data, scale = TRUE,
                        nx=10, ny=10, overlap=0.1,
                        nodemax=1000, kmax = 20,
-                       intersectionSize=10) {
-  pr <- prcomp(data, rank. = 2, scale. = scale)
-  bins <- getBins(filter = pr$x, nx=nx, ny=ny, overlap=overlap)
-  nodes <- clusterFibers(data, bins, nodemax=nodemax, kmax=kmax)
-  gr <- getGraph(nodes, data, M=intersectionSize)
-  nodeMedians <- getMedians(data, nodes)
+                       intersectionSize=10,
+                       clusterMethod="kmeans") {
 
-  mapper <- list(bins=bins, nodes=nodes, gr=gr, nodeMedians=nodeMedians)
+  message("Computing filter function and level sets...")
+  pr <- prcomp(data, rank. = 2, scale. = scale)
+  levelSets <- getLevelSets(filter = pr$x, nx=nx, ny=ny, overlap=overlap)
+  bins <- applyLevelSets(filter = pr$x, levelSets = levelSets)
+
+  message("Clustering the level sets...")
+  cluster <- clusterFibers(data, bins, method=clusterMethod, nodemax=nodemax, kmax=kmax)
+
+  message("Comstructing Mapper graph...")
+  gr <- getGraph(cluster, data, M=intersectionSize)
+  nodeMedians <- getMedians(data, cluster$nodes)
+
+  message("Done!")
+  pr$x <- NULL
+  mapper <- list(bins=bins, nodes=cluster$nodes, gr=gr, nodeMedians=nodeMedians,
+                 centers=cluster$centers, pr=pr, levelSets=levelSets)
   return(mapper)
 }
+
+
+applyMapper <- function(data, mapper) {
+  filter <- applyPCA(data,mapper$pr)
+  bins <- applyLevelSets(filter = filter, levelSets = mapper$levelSets)
+  nodes <- mapToCenters(data, bins, mapper$centers)
+  sizes <- sapply(nodes, length)
+
+  return(list(bins = bins, nodes = nodes, sizes = sizes))
+}
+
+applyPCA <- function(data, pr) {
+
+  scaled <- data %>%
+    as.matrix() %>%
+    sweep(MARGIN = 2, STATS = pr$center) %>%
+    sweep(MARGIN = 2, STATS = pr$scale, FUN = "/")
+
+  filter <- scaled %*% pr$rotation
+  return(filter)
+}
+
+getMapping <- function(data, nodes, community) {
+  mapping <- character(nrow(data))
+
+  for (cl in levels(community)) {
+    mapping[do.call(nodes[which(community == cl)], what=c)] <- cl
+  }
+
+  return(mapping)
+}
+
 
 #' @title louvainClustering
 #' @description Meta-clustering of Mapper nodes using Leiden method.
