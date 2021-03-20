@@ -45,12 +45,12 @@ applyLevelSets <- function(filter, levelSets, outlierCutoff = 0) {
 
 
 clusterFibers <- function(data, bins, method = "kmeans", outlierCutoff = 50,
-                          nodemax, kmax) {
+                          nodemax, kmax, verbose=verbose) {
   if (method == "kmeans")
-    return(clusterFibersKmeans(data, bins, outlierCutoff, nodemax, kmax))
+    return(clusterFibersKmeans(data, bins, outlierCutoff, nodemax, kmax, verbose=verbose))
 
   if (method == "fuzzy")
-    return(clusterFibersFuzzy(data, bins, outlierCutoff, nodemax, kmax))
+    return(clusterFibersFuzzy(data, bins, outlierCutoff, nodemax, kmax, verbose=verbose))
 
   # Enter more methods here
 
@@ -106,7 +106,7 @@ cosineDistance <- function(X) {
 }
 
 
-clusterFibersKmeans <- function(data, bins, outlierCutoff, nodemax, kmax) {
+clusterFibersKmeans <- function(data, bins, outlierCutoff, nodemax, kmax, verbose) {
   nodes <- list()
   centers <- list()
 
@@ -124,10 +124,13 @@ clusterFibersKmeans <- function(data, bins, outlierCutoff, nodemax, kmax) {
       next
     }
 
-    km <- kmeans(data[bin,], centers=k)
+    if(verbose)
+      message(paste("Bin size", length(bin), "k", k))
+
+    km <- kmeans(data[bin,], centers=k, nstart = 10)
 
     newNodes <- km$cluster %>%
-      nodesFromMapping(bin = bin)
+      nodesFromMapping(bin = bin, nCent = k)
 
     keep <- which(sapply(newNodes, length) >= outlierCutoff)
     centers[[i]] <- km$centers[keep,,drop=FALSE]
@@ -146,10 +149,11 @@ mapToCenters <- function(data, bins, centers) {
     if (i > length(centers) || is.null(centers[[i]]))
       next
 
-    # n <- length(nodes)
+
+
     d <- cdist(data[bin,],centers[[i]])
     cluster <- apply(d, 1, which.min)
-    newNodes <- nodesFromMapping(mapping=cluster, bin=bin)
+    newNodes <- nodesFromMapping(mapping=cluster, bin=bin, nCent=nrow(centers[[i]]))
     nodes <- c(nodes, newNodes)
   }
 
@@ -157,19 +161,21 @@ mapToCenters <- function(data, bins, centers) {
 }
 
 
-nodesFromMapping <- function(mapping, bin) {
-  n <- length(unique(mapping))
+nodesFromMapping <- function(mapping, bin, nCent) {
   nodes <- list()
 
-  for (i in seq(n)) {
-    nodes[[i]] <- bin[which(mapping == i)]
+  for (i in seq_len(nCent)) {
+    mapi <- which(mapping == i)
+    nodes[[i]] <- bin[mapi]
   }
+  # unq <- unique(mapping)
+  # nodes <- lapply(unq, function(i) bin[which(mapping==i)])
 
   return(nodes)
 }
 
 
-getAdjList <- function(cluster, M) {
+getAdjList <- function(cluster, M, iou) {
   nodes <- cluster$nodes
   edges <- cluster$edges
 
@@ -183,7 +189,13 @@ getAdjList <- function(cluster, M) {
       neighbor <- nodes[[j]]
       int <- intersect(node, neighbor)
 
-      if (length(int) > M) {
+      if (!is.null(iou)) {
+        uni <- union(node, neighbor)
+        if (length(int) / length(uni) > iou) {
+          adjList[[i]] <- c(adjList[[i]], j)
+          adjList[[j]] <- c(adjList[[j]], i)
+        }
+      } else if (length(int) > M) {
         adjList[[i]] <- c(adjList[[i]], j)
         adjList[[j]] <- c(adjList[[j]], i)
       }
@@ -202,8 +214,8 @@ getAdjList <- function(cluster, M) {
 }
 
 
-getGraph <- function(cluster, data, M = 10) {
-  adjList <- getAdjList(cluster, M)
+getGraph <- function(cluster, M = 10, iou=NULL) {
+  adjList <- getAdjList(cluster, M, iou)
   gr <- graph_from_adj_list(adjList, mode = "all")
 
   E(gr)$weight <- rep(1, length(E(gr))) # for Leiden

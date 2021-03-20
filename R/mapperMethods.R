@@ -23,10 +23,13 @@ NULL
 #' required for an edge.
 #' @export
 flowMapper <- function(data, scale = TRUE,
-                       nx=10, ny=10, overlap=0.1,
+                       nx=10, ny=10, overlap=0.3,
                        nodemax=1000, kmax = 20,
-                       intersectionSize=10,
-                       clusterMethod="kmeans") {
+                       intersectionSize=NULL,
+                       iou=0.03,
+                       clusterMethod="kmeans",
+                       outlierCutoff=25,
+                       verbose=FALSE) {
 
   message("Computing filter function and level sets...")
   pr <- prcomp(data, rank. = 2, scale. = scale)
@@ -34,13 +37,17 @@ flowMapper <- function(data, scale = TRUE,
   bins <- applyLevelSets(filter = pr$x, levelSets = levelSets)
 
   message("Clustering the level sets...")
-  cluster <- clusterFibers(data, bins, method=clusterMethod, nodemax=nodemax, kmax=kmax)
+  cluster <- clusterFibers(data, bins, method=clusterMethod, nodemax=nodemax,
+                           kmax=kmax, verbose=verbose, outlierCutoff=outlierCutoff)
 
   message("Comstructing Mapper graph...")
-  gr <- getGraph(cluster, data, M=intersectionSize)
+  gr <- getGraph(cluster, M=intersectionSize, iou=iou)
+
+  cluster$nodes <- mapToCenters(data, bins, cluster$centers)
   nodeMedians <- getMedians(data, cluster$nodes)
 
-  message("Done!")
+  message(paste("Done! Graph has", length(cluster$nodes), "nodes,",
+                length(E(gr)), "edges."))
   pr$x <- NULL
   mapper <- list(bins=bins, nodes=cluster$nodes, gr=gr, nodeMedians=nodeMedians,
                  centers=cluster$centers, pr=pr, levelSets=levelSets)
@@ -48,6 +55,23 @@ flowMapper <- function(data, scale = TRUE,
 }
 
 
+
+resetEdges <- function(mapper, intersectionSize=NULL, iou=NULL) {
+  cluster <- list()
+  cluster$nodes <- mapper$nodes
+  cluster$edges <- matrix(nrow=0,ncol=2)
+
+  gr <- getGraph(cluster, M=intersectionSize, iou=iou)
+  mapper$gr <- gr
+  return(mapper)
+}
+
+
+#' @title applyMapper
+#' @description Map new data to existing Mapper network.
+#' @param data A data matrix.
+#' @param mapper Existing mapper network
+#' @export
 applyMapper <- function(data, mapper) {
   filter <- applyPCA(data,mapper$pr)
   bins <- applyLevelSets(filter = filter, levelSets = mapper$levelSets)
@@ -92,8 +116,9 @@ leidenClustering <- function(graph, resolution=1) {
 }
 
 
-#' @title getSampleFeatures
-#' @description Create a contingency table of sample vs node membership.
+#' @title Basic features.
+#' @description Extract features from multiple samples, as a contingency table
+#' of sample vs node membership.
 #' @param nodes A list of integer vectors, each containing the data
 #' points assigned to each node.
 #' @param sampleMapping An integer vector, containing the sample of
@@ -120,6 +145,37 @@ getSampleFeatures <- function(nodes, sampleMapping, cl, normalized=TRUE) {
   #   return(pctgNorm)
   # else
   #   return(pctg)
+}
+
+#' @title Moving average features.
+#' @description Extract features from multiple samples, as a contingency table
+#' of sample vs node membership. Smoothed over neighboring nodes in the network
+#' for de-noising purposes, analogous to a moving average.
+#' @param nodes A list of integer vectors, each containing the data
+#' points assigned to each node.
+#' @param sampleMapping An integer vector, containing the sample of
+#' origin for each data point.
+#' @param normalized Logical, whether the contingency table should
+#' be normalized across features. (Normalization across samples takes
+#' place either way.
+#' @export
+getSampleFeaturesSmooth <- function(mapper, sampleMapping, norm=FALSE) {
+  pctg <- sapply(mapper$nodes, function(node) sampleMapping[node] %>%
+                   tabulate(nbins = 112))
+
+  pctg <- apply(pctg, 1, function(row) row / sum(row)) %>% t()
+
+  adj <- as_adj_list(mapper$gr)
+  pctg <- sapply(seq_along(adj), function(i) {
+    apply(pctg[,c(i,adj[[i]]),drop=FALSE], 1, sum)
+  })
+
+  if(norm) {
+    pctg <- apply(pctg, 1, function(row) row / sum(row)) %>% t()
+    pctg <- apply(pctg, 2, function(col) col / sum(col))
+  }
+
+  return(data.frame(pctg))
 }
 
 

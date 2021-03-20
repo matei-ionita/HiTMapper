@@ -9,11 +9,14 @@ flowMapper(
   scale = TRUE,
   nx = 10,
   ny = 10,
-  overlap = 0.1,
+  overlap = 0.3,
   nodemax = 1000,
   kmax = 20,
-  intersectionSize = 10,
-  clusterMethod = "kmeans"
+  intersectionSize = NULL,
+  iou = 0.03,
+  clusterMethod = "kmeans",
+  outlierCutoff = 25,
+  verbose = FALSE
 )
 }
 \arguments{
