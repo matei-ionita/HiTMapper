@@ -1,4 +1,4 @@
-# flowMapper
+# HiTMapper
 
 
 ## Installation
