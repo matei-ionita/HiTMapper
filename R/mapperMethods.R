@@ -9,7 +9,7 @@
 NULL
 
 
-#' @title flowMapper
+#' @title HiTMapper
 #' @description Wrapper for the core Mapper functionality.
 #' @param data A data matrix.
 #' @param nx Number of bins (level sets) for the first
@@ -22,47 +22,101 @@ NULL
 #' @param intersectionSize Minimum number of shared datapoints
 #' required for an edge.
 #' @export
-flowMapper <- function(data, scale = TRUE,
+HiTMapper <- function(data, scale = FALSE,
                        nx=10, ny=10, overlap=0.3,
-                       nodemax=1000, kmax = 20,
+                       nodemax=NULL, kmax = NULL,
+                       kNodes=500,
                        intersectionSize=NULL,
                        iou=0.03,
                        clusterMethod="kmeans",
                        outlierCutoff=25,
                        verbose=FALSE) {
 
-  message("Computing filter function and level sets...")
-  pr <- prcomp(data, rank. = 2, scale. = scale)
-  levelSets <- getLevelSets(filter = pr$x, nx=nx, ny=ny, overlap=overlap)
-  bins <- applyLevelSets(filter = pr$x, levelSets = levelSets)
+  message("Computing filter function...")
+  if (scale) {
+    cov <- cor(data)
+  } else {
+    cov <- cov(data)
+  }
+  pr <- princomp(covmat=cov, scores=FALSE)
+  pr$center <- apply(data, 2, mean)
+  filter <- applyPCA(data, pr)
+
+  message("Computing level sets...")
+  levelSets <- getLevelSets(filter = filter, nx=nx, ny=ny, overlap=overlap)
+  bins <- applyLevelSets(filter = filter, levelSets = levelSets)
+  rm(filter)
+  gc()
 
   message("Clustering the level sets...")
   cluster <- clusterFibers(data, bins, method=clusterMethod, nodemax=nodemax,
-                           kmax=kmax, verbose=verbose, outlierCutoff=outlierCutoff)
+                           kmax=kmax, kNodes=kNodes,
+                           verbose=verbose, outlierCutoff=outlierCutoff)
 
-  message("Comstructing Mapper graph...")
-  gr <- getGraph(cluster, M=intersectionSize, iou=iou)
+  message("Constructing Mapper graph...")
+  inters <- getInters(cluster, mode = "iou")
+  gr <- getGraph(inters, M=intersectionSize, iou=iou)
 
-  cluster$nodes <- mapToCenters(data, bins, cluster$centers)
-  nodeMedians <- getMedians(data, cluster$nodes)
+  cluster$nodesNew <- mapToCenters(data, bins, cluster$centers)
+  nodeStats <- getStats(data, cluster$nodes)
 
   message(paste("Done! Graph has", length(cluster$nodes), "nodes,",
                 length(E(gr)), "edges."))
-  pr$x <- NULL
-  mapper <- list(bins=bins, nodes=cluster$nodes, gr=gr, nodeMedians=nodeMedians,
+
+  mapper <- list(bins=bins, nodes=cluster$nodes, gr=gr, nodeStats=nodeStats,
+                 nodesNew=cluster$nodesNew, inters=inters,
                  centers=cluster$centers, pr=pr, levelSets=levelSets)
   return(mapper)
 }
 
 
+getFilter <- function(data, scale=FALSE) {
+  if (scale) {
+    cov <- cor(data)
+  } else {
+    cov <- cov(data)
+  }
+  pr <- princomp(covmat=cov, scores=FALSE)
+  pr$center <- apply(data, 2, mean)
+  filter <- flowMapper:::applyPCA(data, pr)
 
-resetEdges <- function(mapper, intersectionSize=NULL, iou=NULL) {
-  cluster <- list()
-  cluster$nodes <- mapper$nodes
-  cluster$edges <- matrix(nrow=0,ncol=2)
+  return(filter)
+}
 
-  gr <- getGraph(cluster, M=intersectionSize, iou=iou)
-  mapper$gr <- gr
+plotFilter <- function(data, filter, base="") {
+  sel <- sample(nrow(data), 1e5)
+  df <- cbind(filter[sel,], data[sel,])
+
+  for(param in colnames(data)) {
+    message(param)
+    g <- ggplot(df, aes(x=Comp.1, y=Comp.2)) +
+      geom_point(aes_(color=as.name(param))) +
+      scale_color_gradient(low = "black", high = "orange", name = param) +
+      theme_bw()
+
+    path <- paste0(base, "/", param, ".png")
+    png(path, width=1200, height=900)
+    plot(g)
+    dev.off()
+  }
+}
+
+
+#' @title pruneEdges
+#' @description Prune edges with low weight, to obtain a sparser network
+#' and minimize spurious connections.
+#' @param mapper Existing mapper network.
+#' @param cutoff Prune edges whose weight is smaller than this fraction of
+#' the maximum weight.
+#' @export
+pruneEdges <- function(mapper, cutoff=0.1) {
+  if (cutoff < 0 | cutoff > 1)
+    stop("Cutoff must be given as fraction of the max weight; please enter
+         a value between 0 and 1.")
+
+  inters <- mapper$inters / max(mapper$inters)
+  inters[which(inters<cutoff)] <- 0
+  mapper$gr <- getGraph(inters)
   return(mapper)
 }
 
@@ -74,6 +128,8 @@ resetEdges <- function(mapper, intersectionSize=NULL, iou=NULL) {
 #' @export
 applyMapper <- function(data, mapper) {
   filter <- applyPCA(data,mapper$pr)
+  # filter <- predict(mapper$pr, data)
+  # filter <- filter$scores[,c(1,2)]
   bins <- applyLevelSets(filter = filter, levelSets = mapper$levelSets)
   nodes <- mapToCenters(data, bins, mapper$centers)
   sizes <- sapply(nodes, length)
@@ -81,15 +137,15 @@ applyMapper <- function(data, mapper) {
   return(list(bins = bins, nodes = nodes, sizes = sizes))
 }
 
-applyPCA <- function(data, pr) {
+applyPCA <- function(data, pr, rank=2) {
 
-  scaled <- data %>%
-    as.matrix() %>%
-    sweep(MARGIN = 2, STATS = pr$center) %>%
-    sweep(MARGIN = 2, STATS = pr$scale, FUN = "/")
+  # scaled <- data %>%
+  #   as.matrix() %>%
+  #   sweep(MARGIN = 2, STATS = pr$center) %>%
+  #   sweep(MARGIN = 2, STATS = pr$scale, FUN = "/")
 
-  filter <- scaled %*% pr$rotation
-  return(filter)
+  filter <- sweep(as.matrix(data), MARGIN=2, STATS=pr$center) %*% pr$loadings
+  return(filter[,seq(rank)])
 }
 
 getMapping <- function(data, nodes, community) {

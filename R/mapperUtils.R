@@ -45,12 +45,15 @@ applyLevelSets <- function(filter, levelSets, outlierCutoff = 0) {
 
 
 clusterFibers <- function(data, bins, method = "kmeans", outlierCutoff = 50,
+                          kNodes=NULL,
                           nodemax, kmax, verbose=verbose) {
   if (method == "kmeans")
-    return(clusterFibersKmeans(data, bins, outlierCutoff, nodemax, kmax, verbose=verbose))
+    return(clusterFibersKmeans(data, bins, outlierCutoff, nodemax, kmax, verbose=verbose,
+                               kNodes))
 
   if (method == "fuzzy")
-    return(clusterFibersFuzzy(data, bins, outlierCutoff, nodemax, kmax, verbose=verbose))
+    return(clusterFibersFuzzy(data, bins, outlierCutoff, nodemax, kmax, verbose=verbose,
+                              kNodes))
 
   # Enter more methods here
 
@@ -58,7 +61,8 @@ clusterFibers <- function(data, bins, method = "kmeans", outlierCutoff = 50,
 }
 
 
-clusterFibersFuzzy <- function(data, bins, outlierCutoff, nodemax, kmax) {
+clusterFibersFuzzy <- function(data, bins, outlierCutoff, nodemax, kmax, verbose,
+                               kNodes=NULL) {
   nodes <- list()
   edges <- matrix(nrow = 0, ncol = 2)
 
@@ -106,17 +110,58 @@ cosineDistance <- function(X) {
 }
 
 
-clusterFibersKmeans <- function(data, bins, outlierCutoff, nodemax, kmax, verbose) {
+getK <- function(data, bins, outlierCutoff, kNodes,
+                 fracSumSq = 0.7) {
+  binLength <- sapply(bins, length)
+  notOut <- which(binLength>= outlierCutoff)
+
+  binSumSq <- sapply(bins, function(bin) {
+    if (length(bin) < 2)
+      return(0)
+
+    v <- var(data[bin,])
+    return(sum(diag(v)))
+  }) %>% sqrt()
+  kSumSq <- fracSumSq * binSumSq * kNodes / sum(binSumSq[notOut])
+
+  # binDist <- sapply(bins, function(bin) {
+  #   if (length(bin) < 2)
+  #     return(0)
+  #
+  #   m <- apply(data[bin,],2,mean)
+  #   d <- abs(t(data[bin,])-m) %>%
+  #     apply(2,sum) %>%
+  #     mean()
+  #
+  #   return(d)
+  # })
+  # kDist <- fracSumSq * binDist * kNodes / sum(binDist[notOut])
+
+  binLog <- pmax(log2(binLength),0)
+  kLog <- (1-fracSumSq) * binLog * kNodes / sum(binLog[notOut])
+
+  binK <- ceiling(kSumSq + kLog)
+  allK <- cbind(binLength, kLog, kSumSq, binK)
+  # print(allK[notOut,])
+  return(data.frame(allK))
+}
+
+
+clusterFibersKmeans <- function(data, bins, outlierCutoff, nodemax, kmax, verbose,
+                                kNodes=NULL) {
   nodes <- list()
   centers <- list()
+
+  allK <- getK(data, bins, outlierCutoff, kNodes)
 
   for (i in seq_along(bins)) {
     bin <- bins[[i]]
     if (length(bin) < outlierCutoff)
       next
 
-    k <- ceiling(length(bin)/nodemax)
-    k <- min(k,kmax)
+    # k <- ceiling(length(bin)/nodemax)
+    # k <- min(k,kmax)
+    k <- allK$binK[i]
 
     if (k == 1) {
       nodes <- c(nodes, list(bin))
@@ -127,7 +172,7 @@ clusterFibersKmeans <- function(data, bins, outlierCutoff, nodemax, kmax, verbos
     if(verbose)
       message(paste("Bin size", length(bin), "k", k))
 
-    km <- kmeans(data[bin,], centers=k, nstart = 10)
+    km <- suppressWarnings(kmeans(data[bin,], centers=k, nstart = 10))
 
     newNodes <- km$cluster %>%
       nodesFromMapping(bin = bin, nCent = k)
@@ -175,13 +220,13 @@ nodesFromMapping <- function(mapping, bin, nCent) {
 }
 
 
-getAdjList <- function(cluster, M, iou) {
+
+getInters <- function(cluster, mode="iou") {
   nodes <- cluster$nodes
-  edges <- cluster$edges
 
   n <- length(nodes)
-  adjList <- vector(mode = "list", length = n)
   sizes <- sapply(nodes, length)
+  inters <- matrix(0, nrow=n, ncol=n)
 
   for (i in seq(1,n-1)) {
     node <- nodes[[i]]
@@ -189,45 +234,56 @@ getAdjList <- function(cluster, M, iou) {
       neighbor <- nodes[[j]]
       int <- intersect(node, neighbor)
 
-      if (!is.null(iou)) {
+      if (mode == "iou") {
         uni <- union(node, neighbor)
-        if (length(int) / length(uni) > iou) {
-          adjList[[i]] <- c(adjList[[i]], j)
-          adjList[[j]] <- c(adjList[[j]], i)
-        }
-      } else if (length(int) > M) {
-        adjList[[i]] <- c(adjList[[i]], j)
-        adjList[[j]] <- c(adjList[[j]], i)
+        inters[i,j] <- length(int) / length(uni)
+        inters[j,i] <- length(int) / length(uni)
+      } else {
+        inters[i,j] <- length(int)
+        inters[j,i] <- length(int)
       }
     }
   }
 
-  for (k in seq_len(nrow(edges))) {
-    i <- edges[k,1]
-    j <- edges[k,2]
+  return(inters)
+}
 
-    adjList[[i]] <- c(adjList[[i]], j)
-    adjList[[j]] <- c(adjList[[j]], i)
+getAdjList <- function(inters, M, iou, mode="iou") {
+  n <- nrow(inters)
+  adjList <- vector(mode = "list", length = n)
+
+  if (mode == "iou") {
+    for (i in seq(n)) {
+      adjList[[i]] <- which(inters[i,] > iou)
+    }
+  } else {
+    for (i in seq(n)) {
+      adjList[[i]] <- which(inters[i,] > M)
+    }
   }
 
   return(adjList)
 }
 
 
-getGraph <- function(cluster, M = 10, iou=NULL) {
-  adjList <- getAdjList(cluster, M, iou)
-  gr <- graph_from_adj_list(adjList, mode = "all")
+getGraph <- function(inters, M = 10, iou=NULL) {
+  # adjList <- getAdjList(inters, M, iou)
+  # gr <- graph_from_adj_list(adjList, mode = "all")
+  gr <- graph_from_adjacency_matrix(inters/max(inters),
+                                    weighted = TRUE, mode="undirected")
 
-  E(gr)$weight <- rep(1, length(E(gr))) # for Leiden
-  print(nrow(cluster$edges) / length(E(gr)))
+  # E(gr)$weight <- rep(1, length(E(gr))) # for Leiden
+  # print(nrow(inters) / length(E(gr)))
 
   return(gr)
 }
 
 
-getMedians <- function(data, nodes) {
-  medians <- sapply(nodes, function(node) apply(data[node,], 2, median)) %>% t()
-  return(medians)
+getStats <- function(data, nodes) {
+  q25 <- sapply(nodes, function(node) apply(data[node,], 2, function(x) quantile(x,0.25))) %>% t()
+  q50 <- sapply(nodes, function(node) apply(data[node,], 2, median)) %>% t()
+  q75 <- sapply(nodes, function(node) apply(data[node,], 2, function(x) quantile(x,0.75))) %>% t()
+  return(list(q25=q25,q50=q50,q75=q75))
 }
 
 
