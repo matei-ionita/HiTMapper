@@ -4,10 +4,10 @@
 \alias{pruneEdges}
 \title{pruneEdges}
 \usage{
-pruneEdges(mapper, cutoff = 0.1)
+pruneEdges(mapper, cutoff = 0.01)
 }
 \arguments{
-\item{mapper}{Existing mapper network.}
+\item{mapper}{Existing mapper object.}
 
 \item{cutoff}{Prune edges whose weight is smaller than this fraction of
 the maximum weight.}

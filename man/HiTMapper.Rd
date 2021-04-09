@@ -6,36 +6,32 @@
 \usage{
 HiTMapper(
   data,
-  scale = FALSE,
+  kNodes,
+  outlierCutoff = 25,
   nx = 10,
   ny = 10,
   overlap = 0.3,
-  nodemax = NULL,
-  kmax = NULL,
-  kNodes = 500,
-  intersectionSize = NULL,
-  iou = 0.03,
-  clusterMethod = "kmeans",
-  outlierCutoff = 25,
+  scale = FALSE,
   verbose = FALSE
 )
 }
 \arguments{
-\item{data}{A data matrix.}
+\item{data}{A data matrix or data frame, with observations
+along rows and variables along columns.}
 
-\item{nx}{Number of bins (level sets) for the first
-filter dimension.}
+\item{kNodes}{Approximate number of nodes for the Mapper graph.}
 
-\item{ny}{Number of bins (level sets) for the second
-filter dimension.}
+\item{outlierCutoff}{Discard nodes containing fewer cells than this.}
 
-\item{overlap}{Fractional overlap between neighboring bins.}
+\item{nx}{Number of bins for the first filter dimension.}
 
-\item{nodemax}{In level set clustering stage, split level
-sets with larger cardinality.}
+\item{ny}{Number of bins for the second filter dimension.}
 
-\item{intersectionSize}{Minimum number of shared datapoints
-required for an edge.}
+\item{overlap}{Fraction of overlap between neighboring bins.}
+
+\item{scale}{Logical, whether to scale the data before PCA.}
+
+\item{verbose}{Logical, whether to output detailed info.}
 }
 \description{
 Wrapper for the core Mapper functionality.

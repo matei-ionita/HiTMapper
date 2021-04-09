@@ -2,16 +2,16 @@
 % Please edit documentation in R/mapperMethods.R
 \name{leidenClustering}
 \alias{leidenClustering}
-\title{louvainClustering}
+\title{leidenClustering}
 \usage{
 leidenClustering(graph, resolution = 1)
 }
 \arguments{
-\item{graph}{An igraph object, for example, from the output of flowMapper.}
+\item{graph}{An igraph object, for example, from the output of HiTMapper.}
 
-\item{resolution}{Numeric value controlling the number of meta-clusters:
+\item{resolution}{Numeric value controlling the number of communities:
 increase for more, decrease for fewer.}
 }
 \description{
-Meta-clustering of Mapper nodes using Leiden method.
+Community detection using Leiden method.
 }

@@ -7,9 +7,9 @@
 applyMapper(data, mapper)
 }
 \arguments{
-\item{data}{A data matrix.}
+\item{data}{A data matrix or data frame.}
 
-\item{mapper}{Existing mapper network}
+\item{mapper}{Existing mapper object.}
 }
 \description{
 Map new data to existing Mapper network.

@@ -7,7 +7,6 @@ Maintainer: Matei Ionita <matei.ionita@gmail.com>
 Description: Uses the Mapper algorithm from topological data analysis to create a sparse graph model based on measurements from single cells.
 Imports:
   ggplot2,
-  dplyr,
   magrittr,
   igraph,
   ggraph,

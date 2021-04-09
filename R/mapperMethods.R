@@ -1,6 +1,5 @@
 #' @import ggplot2
 #' @import magrittr
-#' @import dplyr
 #' @import igraph
 #' @import ggraph
 #' @import leidenAlg
@@ -11,26 +10,22 @@ NULL
 
 #' @title HiTMapper
 #' @description Wrapper for the core Mapper functionality.
-#' @param data A data matrix.
-#' @param nx Number of bins (level sets) for the first
-#' filter dimension.
-#' @param ny Number of bins (level sets) for the second
-#' filter dimension.
-#' @param overlap Fractional overlap between neighboring bins.
-#' @param nodemax In level set clustering stage, split level
-#' sets with larger cardinality.
-#' @param intersectionSize Minimum number of shared datapoints
-#' required for an edge.
+#' @param data A data matrix or data frame, with observations
+#' along rows and variables along columns.
+#' @param kNodes Approximate number of nodes for the Mapper graph.
+#' @param outlierCutoff Discard nodes containing fewer cells than this.
+#' @param nx Number of bins for the first filter dimension.
+#' @param ny Number of bins for the second filter dimension.
+#' @param overlap Fraction of overlap between neighboring bins.
+#' @param scale Logical, whether to scale the data before PCA.
+#' @param verbose Logical, whether to output detailed info.
 #' @export
-HiTMapper <- function(data, scale = FALSE,
-                       nx=10, ny=10, overlap=0.3,
-                       nodemax=NULL, kmax = NULL,
-                       kNodes=500,
-                       intersectionSize=NULL,
-                       iou=0.03,
-                       clusterMethod="kmeans",
-                       outlierCutoff=25,
-                       verbose=FALSE) {
+HiTMapper <- function(data, kNodes, outlierCutoff=25,
+                      nx=10, ny=10, overlap=0.3,
+                      scale = FALSE, verbose=FALSE) {
+
+  if(!is.matrix(data) & !is.data.frame(data))
+    stop("Please enter your data in matrix or data.frame format.")
 
   message("Computing filter function...")
   if (scale) {
@@ -49,13 +44,13 @@ HiTMapper <- function(data, scale = FALSE,
   gc()
 
   message("Clustering the level sets...")
-  cluster <- clusterFibers(data, bins, method=clusterMethod, nodemax=nodemax,
-                           kmax=kmax, kNodes=kNodes,
-                           verbose=verbose, outlierCutoff=outlierCutoff)
+  cluster <- clusterLevelSets(data, bins, kNodes=kNodes,
+                              outlierCutoff=outlierCutoff,
+                              verbose=verbose)
 
   message("Constructing Mapper graph...")
   inters <- getInters(cluster, mode = "iou")
-  gr <- getGraph(inters, M=intersectionSize, iou=iou)
+  gr <- getGraph(inters)
 
   cluster$nodesNew <- mapToCenters(data, bins, cluster$centers)
   nodeStats <- getStats(data, cluster$nodes)
@@ -70,46 +65,15 @@ HiTMapper <- function(data, scale = FALSE,
 }
 
 
-getFilter <- function(data, scale=FALSE) {
-  if (scale) {
-    cov <- cor(data)
-  } else {
-    cov <- cov(data)
-  }
-  pr <- princomp(covmat=cov, scores=FALSE)
-  pr$center <- apply(data, 2, mean)
-  filter <- flowMapper:::applyPCA(data, pr)
-
-  return(filter)
-}
-
-plotFilter <- function(data, filter, base="") {
-  sel <- sample(nrow(data), 1e5)
-  df <- cbind(filter[sel,], data[sel,])
-
-  for(param in colnames(data)) {
-    message(param)
-    g <- ggplot(df, aes(x=Comp.1, y=Comp.2)) +
-      geom_point(aes_(color=as.name(param))) +
-      scale_color_gradient(low = "black", high = "orange", name = param) +
-      theme_bw()
-
-    path <- paste0(base, "/", param, ".png")
-    png(path, width=1200, height=900)
-    plot(g)
-    dev.off()
-  }
-}
-
 
 #' @title pruneEdges
 #' @description Prune edges with low weight, to obtain a sparser network
 #' and minimize spurious connections.
-#' @param mapper Existing mapper network.
+#' @param mapper Existing mapper object.
 #' @param cutoff Prune edges whose weight is smaller than this fraction of
 #' the maximum weight.
 #' @export
-pruneEdges <- function(mapper, cutoff=0.1) {
+pruneEdges <- function(mapper, cutoff=0.01) {
   if (cutoff < 0 | cutoff > 1)
     stop("Cutoff must be given as fraction of the max weight; please enter
          a value between 0 and 1.")
@@ -121,48 +85,11 @@ pruneEdges <- function(mapper, cutoff=0.1) {
 }
 
 
-#' @title applyMapper
-#' @description Map new data to existing Mapper network.
-#' @param data A data matrix.
-#' @param mapper Existing mapper network
-#' @export
-applyMapper <- function(data, mapper) {
-  filter <- applyPCA(data,mapper$pr)
-  # filter <- predict(mapper$pr, data)
-  # filter <- filter$scores[,c(1,2)]
-  bins <- applyLevelSets(filter = filter, levelSets = mapper$levelSets)
-  nodes <- mapToCenters(data, bins, mapper$centers)
-  sizes <- sapply(nodes, length)
 
-  return(list(bins = bins, nodes = nodes, sizes = sizes))
-}
-
-applyPCA <- function(data, pr, rank=2) {
-
-  # scaled <- data %>%
-  #   as.matrix() %>%
-  #   sweep(MARGIN = 2, STATS = pr$center) %>%
-  #   sweep(MARGIN = 2, STATS = pr$scale, FUN = "/")
-
-  filter <- sweep(as.matrix(data), MARGIN=2, STATS=pr$center) %*% pr$loadings
-  return(filter[,seq(rank)])
-}
-
-getMapping <- function(data, nodes, community) {
-  mapping <- character(nrow(data))
-
-  for (cl in levels(community)) {
-    mapping[do.call(nodes[which(community == cl)], what=c)] <- cl
-  }
-
-  return(mapping)
-}
-
-
-#' @title louvainClustering
-#' @description Meta-clustering of Mapper nodes using Leiden method.
-#' @param graph An igraph object, for example, from the output of flowMapper.
-#' @param resolution Numeric value controlling the number of meta-clusters:
+#' @title leidenClustering
+#' @description Community detection using Leiden method.
+#' @param graph An igraph object, for example, from the output of HiTMapper.
+#' @param resolution Numeric value controlling the number of communities:
 #' increase for more, decrease for fewer.
 #' @export
 leidenClustering <- function(graph, resolution=1) {
@@ -172,64 +99,125 @@ leidenClustering <- function(graph, resolution=1) {
 }
 
 
-#' @title Basic features.
-#' @description Extract features from multiple samples, as a contingency table
-#' of sample vs node membership.
-#' @param nodes A list of integer vectors, each containing the data
-#' points assigned to each node.
-#' @param sampleMapping An integer vector, containing the sample of
-#' origin for each data point.
-#' @param normalized Logical, whether the contingency table should
-#' be normalized across features. (Normalization across samples takes
-#' place either way.
+#' @title getFilter
+#' @description Get the filter function (PCA projection) used by HiTMapper.
+#' @param data A data matrix or data frame, with observations
+#' along rows and variables along columns.
+#' @param scale Logical, whether to scale the data before PCA.
+#' @param plotPath Generate plots of the filter color-coded by
+#' each of the variables in the data matrix and save them at this path.
+#' No plots generated unless path is provided.
 #' @export
-getSampleFeatures <- function(nodes, sampleMapping, cl, normalized=TRUE) {
-  pctg <- sapply(nodes, function(node) sampleMapping[node] %>%
-                   tabulate(nbins = 112)) %>% t()
+getFilter <- function(data, scale=FALSE, plotPath=NULL) {
+  if(!is.matrix(data) & !is.data.frame(data))
+    stop("Please enter your data in matrix or data.frame format.")
 
-  unq <- as.integer(as.character(unique(cl)))
-  tm <- sapply(unq, function(i) apply(pctg[which(cl==i),,drop=FALSE], 2, sum))
+  if (scale) {
+    cov <- cor(data)
+  } else {
+    cov <- cov(data)
+  }
+  pr <- princomp(covmat=cov, scores=FALSE)
+  pr$center <- apply(data, 2, mean)
+  filter <- applyPCA(data, pr)
 
-  pctg <- apply(tm, 1, function(row) row/sum(row)) %>% t()
+  # To do: show the overlapping bins on the PCA plot,
+  # to help visualize what Mapper is doing
+  if(!is.null(plotPath))
+    plotFilter(data,filter,plotPath)
 
-  return(data.frame(pctg))
-
-  # pctg <- apply(pctg, 2, function(col) col/sum(col))
-  # pctgNorm <- apply(pctg, 1, function(row) row/mean(row))
-  #
-  # if(normalized)
-  #   return(pctgNorm)
-  # else
-  #   return(pctg)
+  return(filter)
 }
 
-#' @title Moving average features.
-#' @description Extract features from multiple samples, as a contingency table
-#' of sample vs node membership. Smoothed over neighboring nodes in the network
-#' for de-noising purposes, analogous to a moving average.
-#' @param nodes A list of integer vectors, each containing the data
-#' points assigned to each node.
-#' @param sampleMapping An integer vector, containing the sample of
+
+
+#' @title applyMapper
+#' @description Map new data to existing Mapper network.
+#' @param data A data matrix or data frame.
+#' @param mapper Existing mapper object.
+#' @export
+applyMapper <- function(data, mapper) {
+  if(!is.matrix(data) & !is.data.frame(data))
+    stop("Please enter your data in matrix or data.frame format.")
+
+  filter <- applyPCA(data,mapper$pr)
+  bins <- applyLevelSets(filter = filter, levelSets = mapper$levelSets)
+  nodes <- mapToCenters(data, bins, mapper$centers)
+  sizes <- sapply(nodes, length)
+
+  return(list(bins = bins, nodes = nodes, sizes = sizes))
+}
+
+
+
+#' @title assignCells
+#' @description Map individual data points to network nodes or communities.
+#' @param data A data matrix or data frame.
+#' @param mapper Existing mapper object.
+#' @param community A factor giving community membership for the nodes.
+#' If present, outputs mapping of data points to communities. If absent,
+#' outputs mapping of data points to network nodes.
+#' @export
+assignCells <- function(data, mapper, community=NULL) {
+  if(!is.matrix(data) & !is.data.frame(data))
+    stop("Please enter your data in matrix or data.frame format.")
+
+  mapping <- integer(nrow(data))
+
+  for (i in seq_along(mapper$nodes)) {
+    mapping[ mapper$nodes[[i]] ] <- i
+  }
+
+  if (!is.null(community)) {
+    # Some cells are unassigned
+    n <- length(mapper$nodes)
+    mapping[which(mapping==0)] <- n+1
+    communityAugmented <- c(as.character(community), "Unassigned") %>%
+      as.factor()
+
+    mapping <- communityAugmented[mapping]
+  }
+
+  return(mapping)
+}
+
+
+
+#' @title nodeComposition
+#' @description Contingency table of sample vs node membership.
+#' @param mapper Existing mapper object.
+#' @param samples An integer vector, containing the sample of
 #' origin for each data point.
-#' @param normalized Logical, whether the contingency table should
-#' be normalized across features. (Normalization across samples takes
+#' @param scale Logical, whether the contingency table should
+#' be scaled across features. (Scaling across samples takes
 #' place either way.
 #' @export
-getSampleFeaturesSmooth <- function(mapper, sampleMapping, norm=FALSE) {
-  pctg <- sapply(mapper$nodes, function(node) sampleMapping[node] %>%
-                   tabulate(nbins = 112))
-
-  pctg <- apply(pctg, 1, function(row) row / sum(row)) %>% t()
-
-  adj <- as_adj_list(mapper$gr)
-  pctg <- sapply(seq_along(adj), function(i) {
-    apply(pctg[,c(i,adj[[i]]),drop=FALSE], 1, sum)
-  })
-
-  if(norm) {
-    pctg <- apply(pctg, 1, function(row) row / sum(row)) %>% t()
-    pctg <- apply(pctg, 2, function(col) col / sum(col))
+nodeComposition <- function(mapper, samples, scale=FALSE) {
+  if (is.factor(samples)) {
+    unq <- levels(samples)
+  } else {
+    unq <- unique(samples)
   }
+
+  counts <- lapply(mapper$nodes, function(node) {samples[node] %>% table}) %>%
+    sapply(function(v) {
+      w <- v[unq]
+      w[which(is.na(names(w)))] <- 0
+      return(unname(w))
+    })
+
+  pctg <- apply(counts, 1, function(row) {
+    if (sum(row) == 0)
+      return(row)
+    return(row / sum(row))
+  }) %>% t()
+
+  if(scale)
+    pctg <- apply(pctg, 2, function(col) {
+      if (sum(col) == 0)
+        return(col)
+      return(col / sum(col))
+    })
 
   return(data.frame(pctg))
 }
