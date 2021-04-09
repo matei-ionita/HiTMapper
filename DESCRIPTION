@@ -12,7 +12,8 @@ Imports:
   ggraph,
   leidenAlg,
   e1071,
-  rdist
+  rdist,
+  ggiraph
 License: GPL-3
 Encoding: UTF-8
 LazyData: true
