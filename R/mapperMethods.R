@@ -80,7 +80,12 @@ pruneEdges <- function(mapper, cutoff=0.01) {
 
   inters <- mapper$inters / max(mapper$inters)
   inters[which(inters<cutoff)] <- 0
+
+  n0 <- length(E(mapper$gr))
   mapper$gr <- getGraph(inters)
+  n1 <- length(E(mapper$gr))
+
+  message(paste("Pruned", n0, "edges down to", n1, "."))
   return(mapper)
 }
 
@@ -163,10 +168,19 @@ assignCells <- function(data, mapper, community=NULL) {
     stop("Please enter your data in matrix or data.frame format.")
 
   mapping <- integer(nrow(data))
+  distances <- numeric(nrow(data)) + Inf
 
   for (i in seq_along(mapper$nodes)) {
-    mapping[ mapper$nodes[[i]] ] <- i
+    node <- mapper$nodes[[i]]
+    m <- mapper$nodeStats$q50[i,]
+
+    distNew <- (t(data[node,])-m)^2 %>% apply(2, sum)
+    closer <- which(distNew < distances[node])
+
+    distances[node[closer]] <- distNew[closer]
+    mapping[node[closer]] <- i
   }
+  distances <- sqrt(distances)
 
   if (!is.null(community)) {
     # Some cells are unassigned
@@ -178,7 +192,8 @@ assignCells <- function(data, mapper, community=NULL) {
     mapping <- communityAugmented[mapping]
   }
 
-  return(mapping)
+  df <- data.frame(mapping=mapping,dist=distances)
+  return(df)
 }
 
 
