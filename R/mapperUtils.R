@@ -45,9 +45,9 @@ applyLevelSets <- function(filter, levelSets, outlierCutoff = 0) {
 
 
 clusterLevelSets <- function(data, bins, kNodes, outlierCutoff,
-                             verbose, method="kmeans") {
+                             verbose, npc, method="kmeans") {
   if (method == "kmeans")
-    return(clusterKmeans(data, bins, kNodes, outlierCutoff, verbose))
+    return(clusterKmeans(data, bins, kNodes, outlierCutoff, npc, verbose))
 
   if (method == "fuzzy")  # Fuzzy method is a rough draft.
     return(clusterFuzzy(data, bins, kNodes, outlierCutoff, verbose))
@@ -58,7 +58,7 @@ clusterLevelSets <- function(data, bins, kNodes, outlierCutoff,
 }
 
 
-clusterKmeans <- function(data, bins, kNodes, outlierCutoff, verbose) {
+clusterKmeans <- function(data, bins, kNodes, outlierCutoff, npc, verbose) {
   nodes <- list()
   centers <- list()
 
@@ -80,7 +80,16 @@ clusterKmeans <- function(data, bins, kNodes, outlierCutoff, verbose) {
     if(verbose)
       message(paste0("Bin size=", length(bin), ", k=", k))
 
-    km <- suppressWarnings(kmeans(data[bin,], centers=k, nstart = 10))
+    if (is.null(npc)) {
+      km <- suppressWarnings(kmeans(data[bin,], centers=k, nstart = 10))
+    } else {
+      cov <- cov(data[bin,])
+      pr <- princomp(covmat=cov, scores=FALSE)
+      pr$center <- apply(data, 2, mean)
+      pc <- applyPCA(data[bin,], pr, rank=npc)
+
+      km <- suppressWarnings(kmeans(pc, centers=k, nstart = 10))
+    }
 
     newNodes <- km$cluster %>%
       nodesFromMapping(bin = bin, nCent = k)
@@ -299,8 +308,16 @@ applyPCA <- function(data, pr, rank=2) {
   #   sweep(MARGIN = 2, STATS = pr$center) %>%
   #   sweep(MARGIN = 2, STATS = pr$scale, FUN = "/")
 
-  filter <- sweep(as.matrix(data), MARGIN=2, STATS=pr$center) %*% pr$loadings
-  return(filter[,seq(rank)])
+  # filter <- sweep(as.matrix(data), MARGIN=2, STATS=pr$center) %*% pr$loadings
+  # return(filter[,seq(rank)])
+
+  if(is.matrix(data)) {
+    filter <- sweep(data, MARGIN=2, STATS=pr$center) %*% pr$loadings[,seq(rank)]
+  } else {
+    filter <- sweep(as.matrix(data), MARGIN=2, STATS=pr$center) %*% pr$loadings[,seq(rank)]
+  }
+
+  return(filter)
 }
 
 

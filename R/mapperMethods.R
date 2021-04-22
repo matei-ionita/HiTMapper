@@ -22,7 +22,8 @@ NULL
 #' @export
 HiTMapper <- function(data, kNodes, outlierCutoff=25,
                       nx=10, ny=10, overlap=0.3,
-                      scale = FALSE, verbose=FALSE) {
+                      scale = FALSE, verbose=FALSE,
+                      npc = NULL) {
 
   if(!is.matrix(data) & !is.data.frame(data))
     stop("Please enter your data in matrix or data.frame format.")
@@ -46,20 +47,20 @@ HiTMapper <- function(data, kNodes, outlierCutoff=25,
   message("Clustering the level sets...")
   cluster <- clusterLevelSets(data, bins, kNodes=kNodes,
                               outlierCutoff=outlierCutoff,
-                              verbose=verbose)
+                              verbose=verbose, npc=npc)
 
   message("Constructing Mapper graph...")
   inters <- getInters(cluster, mode = "iou")
   gr <- getGraph(inters)
 
-  cluster$nodesNew <- mapToCenters(data, bins, cluster$centers)
+  # cluster$nodesNew <- mapToCenters(data, bins, cluster$centers)
   nodeStats <- getStats(data, cluster$nodes)
 
   message(paste("Done! Graph has", length(cluster$nodes), "nodes,",
                 length(E(gr)), "edges."))
 
   mapper <- list(bins=bins, nodes=cluster$nodes, gr=gr, nodeStats=nodeStats,
-                 nodesNew=cluster$nodesNew, inters=inters,
+                 inters=inters,
                  centers=cluster$centers, pr=pr, levelSets=levelSets)
   return(mapper)
 }

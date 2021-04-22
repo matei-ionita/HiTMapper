@@ -12,7 +12,8 @@ HiTMapper(
   ny = 10,
   overlap = 0.3,
   scale = FALSE,
-  verbose = FALSE
+  verbose = FALSE,
+  npc = NULL
 )
 }
 \arguments{
