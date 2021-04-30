@@ -7,13 +7,14 @@
 HiTMapper(
   data,
   kNodes,
-  outlierCutoff = 25,
+  outlierCutoff = nrow(data)/10000,
   nx = 10,
   ny = 10,
   overlap = 0.3,
   scale = FALSE,
   verbose = FALSE,
-  npc = NULL
+  npc = NULL,
+  filter = NULL
 )
 }
 \arguments{

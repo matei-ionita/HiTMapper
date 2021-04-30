@@ -5,6 +5,7 @@
 #' @import leidenAlg
 #' @import e1071
 #' @import rdist
+#' @import flowCore
 NULL
 
 
@@ -20,23 +21,25 @@ NULL
 #' @param scale Logical, whether to scale the data before PCA.
 #' @param verbose Logical, whether to output detailed info.
 #' @export
-HiTMapper <- function(data, kNodes, outlierCutoff=25,
+HiTMapper <- function(data, kNodes, outlierCutoff=nrow(data)/1e4,
                       nx=10, ny=10, overlap=0.3,
                       scale = FALSE, verbose=FALSE,
-                      npc = NULL) {
+                      npc = NULL, filter=NULL) {
 
   if(!is.matrix(data) & !is.data.frame(data))
     stop("Please enter your data in matrix or data.frame format.")
 
-  message("Computing filter function...")
-  if (scale) {
-    cov <- cor(data)
-  } else {
-    cov <- cov(data)
+  if (is.null(filter)) {
+    message("Computing filter function...")
+    if (scale) {
+      cov <- cor(data)
+    } else {
+      cov <- cov(data)
+    }
+    pr <- princomp(covmat=cov, scores=FALSE)
+    pr$center <- apply(data, 2, mean)
+    filter <- applyPCA(data, pr)
   }
-  pr <- princomp(covmat=cov, scores=FALSE)
-  pr$center <- apply(data, 2, mean)
-  filter <- applyPCA(data, pr)
 
   message("Computing level sets...")
   levelSets <- getLevelSets(filter = filter, nx=nx, ny=ny, overlap=overlap)
@@ -61,10 +64,82 @@ HiTMapper <- function(data, kNodes, outlierCutoff=25,
 
   mapper <- list(bins=bins, nodes=cluster$nodes, gr=gr, nodeStats=nodeStats,
                  inters=inters,
-                 centers=cluster$centers, pr=pr, levelSets=levelSets)
+                 centers=cluster$centers, levelSets=levelSets)
   return(mapper)
 }
 
+
+#' @title HiTMapperSamplewise
+#' @description Fit HiTMapper models independently to each sample,
+#' then align them to a common layout.
+#' @param path The path where fcs files are.
+#' @param files List of files to use.
+#' @param ignore Optional, list of markers to ignore.
+#' @export
+HiTMapperSamplewise <- function(path, files, ignore=c(),
+                                kNodes=400, nx=7, ny=7, overlap=0.2) {
+  message("Computing sample-wise models...")
+  mappers <- get_mappers(path, files, ignore,
+                         kNodes, nx, ny, overlap)
+
+  message("Aligning samples and computing features...")
+  Nevents <- get_n_events(path, files)
+  gr <- get_meta_gr(mappers, w=0.5)
+  community <- leidenClustering(gr, resolution=6)
+  mapping <- get_mapping(path, files, mappers, ignore)
+  community_mapping <- community[mapping] %>% unname()
+  sample_mapping <- get_sample_mapping(gr, Nevents)
+
+  feat <- get_contingency_table(community_mapping, sample_mapping)
+  sample_names <- V(gr)$name %>% str_split(pattern="_") %>%
+    sapply(function(x) x[1]) %>%
+    unique()
+
+  community_medians <- get_community_medians(community, mappers)
+
+  message("Done!")
+  return(list(mappers=mappers, graph=gr, Nevents = Nevents,
+              features=feat, community = community,
+              community_medians = community_medians,
+              sample_names=sample_names))
+}
+
+
+#' @title HiTMapperPooled
+#' @description Pool data from multiple fcs files, and compute a
+#' joint model using a single layout.
+#' @param path The path where fcs files are.
+#' @param files List of files to use.
+#' @param ignore Optional, list of markers to ignore.
+#' @export
+HiTMapperPooled <- function(path, files, ignore=c(),
+                            kNodes=500, nx=7, ny=7, overlap=0.2) {
+  message("Computing pooled model...")
+  data <- pool_data(path, files, ignore)
+  mapper <- HiTMapper(data, kNodes=kNodes,
+                      nx=nx,ny=ny, overlap=overlap)
+  mapper <- pruneEdges(mapper, cutoff = 0.01)
+  community <- leidenClustering(mapper$gr, resolution=6)
+
+  message("Computing sample features...")
+  community_mapping <- assignCells(data, mapper, community)$mapping
+  sample_mapping <- get_sample_mapping_pooled(path,files)
+
+  mapper$community <- community
+  mapper$community_medians <- get_community_medians_pooled(community, mapper, data)
+
+  mapper$features <- get_contingency_table(community_mapping, sample_mapping)
+  ord <- c(seq(0, ncol(mapper$features)-2), "Unassigned")
+  mapper$features <- mapper$features[,ord]
+
+  mapper$node_composition <- nodeComposition(mapper, sample_mapping, scale=FALSE) %>%
+    as.matrix()
+  mapper$sample_names <- unique(sample_mapping)
+
+  message("Done!")
+
+  return(mapper)
+}
 
 
 #' @title pruneEdges
