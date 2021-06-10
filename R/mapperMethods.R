@@ -5,7 +5,6 @@
 #' @import leidenAlg
 #' @import e1071
 #' @import rdist
-#' @import flowCore
 NULL
 
 
@@ -69,112 +68,6 @@ HiTMapper <- function(data, kNodes, outlierCutoff=nrow(data)/1e4,
 }
 
 
-#' @title HiTMapperSamplewise
-#' @description Fit HiTMapper models independently to each sample,
-#' then align them to a common layout.
-#' @param path The path where fcs files are.
-#' @param files List of files to use.
-#' @param ignore Optional, list of markers to ignore.
-#' @export
-HiTMapperSamplewise <- function(path, files, ignore=c(),
-                                kNodes=400, nx=7, ny=7, overlap=0.2) {
-  message("Computing sample-wise models...")
-  mappers <- get_mappers(path, files, ignore,
-                         kNodes, nx, ny, overlap)
-
-  message("Aligning samples and computing features...")
-  Nevents <- get_n_events(path, files)
-  gr <- get_meta_gr(mappers, w=0.5)
-  community <- leidenClustering(gr, resolution=6)
-  mapping <- get_mapping(path, files, mappers, ignore)
-  community_mapping <- community[mapping] %>% unname()
-  sample_mapping <- get_sample_mapping(gr, Nevents)
-
-  feat <- get_contingency_table(community_mapping, sample_mapping)
-  sample_names <- V(gr)$name %>% str_split(pattern="_") %>%
-    sapply(function(x) x[1]) %>%
-    unique()
-
-  community_medians <- get_community_medians(community, mappers)
-
-  message("Done!")
-  return(list(mappers=mappers, graph=gr, Nevents = Nevents,
-              features=feat, community = community,
-              community_medians = community_medians,
-              sample_names=sample_names))
-}
-
-
-#' @title HiTMapperPooled
-#' @description Pool data from multiple fcs files, and compute a
-#' joint model using a single layout.
-#' @param path The path where fcs files are.
-#' @param files List of files to use.
-#' @param ignore Optional, list of markers to ignore.
-#' @export
-HiTMapperPooled <- function(path, files, ignore=c(),
-                            kNodes=500, nx=7, ny=7, overlap=0.2) {
-  message("Computing pooled model...")
-  data <- pool_data(path, files, ignore)
-  mapper <- HiTMapper(data, kNodes=kNodes,
-                      nx=nx,ny=ny, overlap=overlap)
-  mapper <- pruneEdges(mapper, cutoff = 0.01)
-  community <- leidenClustering(mapper$gr, resolution=6)
-
-  message("Computing sample features...")
-  community_mapping <- assignCells(data, mapper, community)$mapping
-  sample_mapping <- get_sample_mapping_pooled(path,files)
-
-  mapper$community <- community
-  mapper$community_medians <- get_community_medians_pooled(community, mapper, data)
-
-  mapper$features <- get_contingency_table(community_mapping, sample_mapping)
-  ord <- c(seq(0, ncol(mapper$features)-2), "Unassigned")
-  mapper$features <- mapper$features[,ord]
-
-  mapper$node_composition <- nodeComposition(mapper, sample_mapping, scale=FALSE) %>%
-    as.matrix()
-  mapper$sample_names <- unique(sample_mapping)
-
-  message("Done!")
-
-  return(mapper)
-}
-
-
-#' @title HiTMapperPooledMatrix
-#' @description Take as input a data matrix and a character vector assigning
-#' cells to samples, then compute a joint model using a single layout.
-#' @param data A data matrix.
-#' @param sample_mapping A character vector assigning cells to samples.
-#' @export
-HiTMapperPooledMatrix <- function(data, sample_mapping,
-                            kNodes=500, nx=7, ny=7, overlap=0.2) {
-  message("Computing pooled model...")
-  mapper <- HiTMapper(data, kNodes=kNodes,
-                      nx=nx,ny=ny, overlap=overlap)
-  mapper <- pruneEdges(mapper, cutoff = 0.01)
-  community <- leidenClustering(mapper$gr, resolution=6)
-
-  message("Computing sample features...")
-  community_mapping <- assignCells(data, mapper, community)$mapping
-
-  mapper$community <- community
-  mapper$community_medians <- get_community_medians_pooled(community, mapper, data)
-
-  mapper$features <- get_contingency_table(community_mapping, sample_mapping)
-  ord <- c(seq(0, ncol(mapper$features)-2), "Unassigned")
-  mapper$features <- mapper$features[,ord]
-
-  mapper$node_composition <- nodeComposition(mapper, sample_mapping, scale=FALSE) %>%
-    as.matrix()
-  mapper$sample_names <- unique(sample_mapping)
-
-  message("Done!")
-
-  return(mapper)
-}
-
 
 #' @title pruneEdges
 #' @description Prune edges with low weight, to obtain a sparser network
@@ -198,7 +91,6 @@ pruneEdges <- function(mapper, cutoff=0.01) {
   message(paste("Pruned", n0, "edges down to", n1, "."))
   return(mapper)
 }
-
 
 
 #' @title leidenClustering
@@ -243,26 +135,6 @@ getFilter <- function(data, scale=FALSE, plotPath=NULL) {
 
   return(filter)
 }
-
-
-
-#' @title applyMapper
-#' @description Map new data to existing Mapper network.
-#' @param data A data matrix or data frame.
-#' @param mapper Existing mapper object.
-#' @export
-applyMapper <- function(data, mapper) {
-  if(!is.matrix(data) & !is.data.frame(data))
-    stop("Please enter your data in matrix or data.frame format.")
-
-  filter <- applyPCA(data,mapper$pr)
-  bins <- applyLevelSets(filter = filter, levelSets = mapper$levelSets)
-  nodes <- mapToCenters(data, bins, mapper$centers)
-  sizes <- sapply(nodes, length)
-
-  return(list(bins = bins, nodes = nodes, sizes = sizes))
-}
-
 
 
 #' @title assignCells
@@ -361,18 +233,14 @@ getCommunitiesFeatures <- function(data, sample_mapping,
   mapper <- calibrate_weights(mapper)
   community <- leidenClustering(mapper$gr, resolution = resolution)
   mapper$community <- community
-  mapper$community_medians <- get_community_medians_pooled(community,
-                                                                       mapper, data)
+  mapper$community_medians <- get_community_medians(community,mapper, data)
 
   community <- get_labels(mapper, defs, additional)
   mapper$community <- community
-  mapper$community_medians <- get_community_medians_pooled(community,
-                                                                       mapper, data)
+  mapper$community_medians <- get_community_medians(community,mapper, data)
   community_mapping <- assignCells(data, mapper, community)$mapping
   mapper$features <- get_contingency_table(community_mapping, sample_mapping) %>%
     data.frame()
-  # ord <- c(seq(0, ncol(mapper$features) - 2), "Unassigned")
-  # mapper$features <- mapper$features[, ord]
   mapper$node_composition <- nodeComposition(mapper, sample_mapping,
                                              scale = FALSE) %>% as.matrix()
   mapper$sample_names <- unique(sample_mapping) %>%

@@ -49,9 +49,6 @@ clusterLevelSets <- function(data, bins, kNodes, outlierCutoff,
   if (method == "kmeans")
     return(clusterKmeans(data, bins, kNodes, outlierCutoff, npc, verbose))
 
-  if (method == "fuzzy")  # Fuzzy method is a rough draft.
-    return(clusterFuzzy(data, bins, kNodes, outlierCutoff, verbose))
-
   # Enter more methods here?
 
   stop("Invalid method chosen.")
@@ -104,54 +101,6 @@ clusterKmeans <- function(data, bins, kNodes, outlierCutoff, npc, verbose) {
 }
 
 
-clusterFibersFuzzy <- function(data, bins, kNodes, outlierCutoff, verbose) {
-  nodes <- list()
-  edges <- matrix(nrow = 0, ncol = 2)
-
-  allK <- getK(data, bins, outlierCutoff, kNodes)
-
-  for (i in seq_along(bins)) {
-    bin <- bins[[i]]
-    if (length(bin) < outlierCutoff)
-      next
-
-    k <- allK[i]
-    cat("Splitting", length(bin), "into", k, "nodes.\n")
-
-    if (k < 2) {
-      nodes <- c(nodes, list(bin))
-      next
-    }
-
-    fuzzy <- cmeans(data[bin,], centers=k, m=1.5, iter.max=50)
-    newNodes <- fuzzy$cluster %>%
-      nodesFromMapping(bin = bin)
-
-    keep <- which(sapply(newNodes, length) >= outlierCutoff)
-
-    if (length(keep) > 1) {
-      newEdges <- cosineDistance(fuzzy$membership[,keep])
-      newEdges <- newEdges + length(nodes)
-      edges <- rbind(edges, newEdges)
-    }
-
-    nodes <- c(nodes, newNodes[keep])
-  }
-
-  return(list(nodes=nodes, edges=edges))
-}
-
-
-cosineDistance <- function(X) {
-  inn <- t(X) %*% X
-  norms <- diag(inn)
-  ans <- diag(1/sqrt(norms)) %*% inn %*% diag(1/sqrt(norms))
-  edges <- which(ans > 0.05, arr.ind = TRUE)
-  edges <- edges[which( edges[,"row"]< edges[,"col"] ),,drop=FALSE]
-
-  return(edges)
-}
-
 
 getK <- function(data, bins, outlierCutoff, kNodes,
                  fracSumSq = 0.75) {
@@ -192,8 +141,6 @@ mapToCenters <- function(data, bins, centers) {
     if (i > length(centers) || is.null(centers[[i]]))
       next
 
-
-
     d <- cdist(data[bin,],centers[[i]])
     cluster <- apply(d, 1, which.min)
     newNodes <- nodesFromMapping(mapping=cluster, bin=bin, nCent=nrow(centers[[i]]))
@@ -214,8 +161,6 @@ nodesFromMapping <- function(mapping, bin, nCent) {
 
   return(nodes)
 }
-
-
 
 getInters <- function(cluster, mode="iou") {
   nodes <- cluster$nodes
@@ -242,25 +187,6 @@ getInters <- function(cluster, mode="iou") {
   }
 
   return(inters)
-}
-
-
-# Not currently in use.
-getAdjList <- function(inters, M, iou, mode="iou") {
-  n <- nrow(inters)
-  adjList <- vector(mode = "list", length = n)
-
-  if (mode == "iou") {
-    for (i in seq(n)) {
-      adjList[[i]] <- which(inters[i,] > iou)
-    }
-  } else {
-    for (i in seq(n)) {
-      adjList[[i]] <- which(inters[i,] > M)
-    }
-  }
-
-  return(adjList)
 }
 
 
@@ -302,15 +228,6 @@ plotFilter <- function(data, filter, path="") {
 
 
 applyPCA <- function(data, pr, rank=2) {
-
-  # scaled <- data %>%
-  #   as.matrix() %>%
-  #   sweep(MARGIN = 2, STATS = pr$center) %>%
-  #   sweep(MARGIN = 2, STATS = pr$scale, FUN = "/")
-
-  # filter <- sweep(as.matrix(data), MARGIN=2, STATS=pr$center) %*% pr$loadings
-  # return(filter[,seq(rank)])
-
   if(is.matrix(data)) {
     filter <- sweep(data, MARGIN=2, STATS=pr$center) %*% pr$loadings[,seq(rank)]
   } else {
@@ -319,7 +236,6 @@ applyPCA <- function(data, pr, rank=2) {
 
   return(filter)
 }
-
 
 
 

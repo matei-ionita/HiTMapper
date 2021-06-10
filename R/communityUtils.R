@@ -13,6 +13,23 @@ calibrate_weights <- function(mapper) {
 }
 
 
+get_community_medians <- function(community, mapper, data) {
+  lev <- levels(community)
+  commEvents <- lapply(lev, function(l) Reduce(union, mapper$nodes[which(community==l)]))
+  commStats <- getStats(data, commEvents)
+
+  return(commStats$q50)
+}
+
+get_contingency_table <- function(mapping, samples) {
+  base <- unname(table(samples))
+  tab <- table(mapping, samples) %>% as.matrix()
+  tab <- apply(tab, 1, function(row) row/base)
+
+  return(tab)
+}
+
+
 get_labels <- function(mapper, defs, additional=list()) {
   pos <- apply(mapper$community_medians, 2, function(v) {
     dv <- cluster::diana(v)
@@ -25,7 +42,6 @@ get_labels <- function(mapper, defs, additional=list()) {
     }
     return(lab[dv2])
   })
-  # pos[,"CD159c"] <- "lo"
 
   labels <- rep("Other", nrow(pos))
   ind <- integer(nrow(pos))

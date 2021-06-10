@@ -13,8 +13,7 @@ Imports:
   leidenAlg,
   e1071,
   rdist,
-  ggiraph,
-  flowCore
+  ggiraph
 License: GPL-3
 Encoding: UTF-8
 LazyData: true
