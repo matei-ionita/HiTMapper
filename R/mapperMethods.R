@@ -142,6 +142,40 @@ HiTMapperPooled <- function(path, files, ignore=c(),
 }
 
 
+#' @title HiTMapperPooledMatrix
+#' @description Take as input a data matrix and a character vector assigning
+#' cells to samples, then compute a joint model using a single layout.
+#' @param data A data matrix.
+#' @param sample_mapping A character vector assigning cells to samples.
+#' @export
+HiTMapperPooledMatrix <- function(data, sample_mapping,
+                            kNodes=500, nx=7, ny=7, overlap=0.2) {
+  message("Computing pooled model...")
+  mapper <- HiTMapper(data, kNodes=kNodes,
+                      nx=nx,ny=ny, overlap=overlap)
+  mapper <- pruneEdges(mapper, cutoff = 0.01)
+  community <- leidenClustering(mapper$gr, resolution=6)
+
+  message("Computing sample features...")
+  community_mapping <- assignCells(data, mapper, community)$mapping
+
+  mapper$community <- community
+  mapper$community_medians <- get_community_medians_pooled(community, mapper, data)
+
+  mapper$features <- get_contingency_table(community_mapping, sample_mapping)
+  ord <- c(seq(0, ncol(mapper$features)-2), "Unassigned")
+  mapper$features <- mapper$features[,ord]
+
+  mapper$node_composition <- nodeComposition(mapper, sample_mapping, scale=FALSE) %>%
+    as.matrix()
+  mapper$sample_names <- unique(sample_mapping)
+
+  message("Done!")
+
+  return(mapper)
+}
+
+
 #' @title pruneEdges
 #' @description Prune edges with low weight, to obtain a sparser network
 #' and minimize spurious connections.
@@ -297,6 +331,9 @@ nodeComposition <- function(mapper, samples, scale=FALSE) {
       return(unname(w))
     })
 
+  if (length(unq) == 1)
+    counts <- matrix(counts, nrow=1)
+
   pctg <- apply(counts, 1, function(row) {
     if (sum(row) == 0)
       return(row)
@@ -313,6 +350,35 @@ nodeComposition <- function(mapper, samples, scale=FALSE) {
   return(data.frame(pctg))
 }
 
+
+#' @title getCommunitiesFeatures
+#' @description Wrapper for communitiy detection, labeling,
+#' and extracting features (cell type percentages).
+#' @param mapper Existing mapper object.
+#' @export
+getCommunitiesFeatures <- function(data, sample_mapping,
+                                   mapper, defs, additional=list(), resolution=2) {
+  mapper <- calibrate_weights(mapper)
+  community <- leidenClustering(mapper$gr, resolution = resolution)
+  mapper$community <- community
+  mapper$community_medians <- get_community_medians_pooled(community,
+                                                                       mapper, data)
+
+  community <- get_labels(mapper, defs, additional)
+  mapper$community <- community
+  mapper$community_medians <- get_community_medians_pooled(community,
+                                                                       mapper, data)
+  community_mapping <- assignCells(data, mapper, community)$mapping
+  mapper$features <- get_contingency_table(community_mapping, sample_mapping) %>%
+    data.frame()
+  # ord <- c(seq(0, ncol(mapper$features) - 2), "Unassigned")
+  # mapper$features <- mapper$features[, ord]
+  mapper$node_composition <- nodeComposition(mapper, sample_mapping,
+                                             scale = FALSE) %>% as.matrix()
+  mapper$sample_names <- unique(sample_mapping) %>%
+    str_split(pattern = "-") %>% sapply(function(x) paste0(x[2], "-", x[3]))
+  return(mapper)
+}
 
 
 

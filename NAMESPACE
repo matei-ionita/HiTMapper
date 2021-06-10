@@ -2,9 +2,11 @@
 
 export(HiTMapper)
 export(HiTMapperPooled)
+export(HiTMapperPooledMatrix)
 export(HiTMapperSamplewise)
 export(applyMapper)
 export(assignCells)
+export(getCommunitiesFeatures)
 export(getFilter)
 export(leidenClustering)
 export(nodeComposition)

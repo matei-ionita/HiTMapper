@@ -19,15 +19,29 @@ plotMapper <- function(mapper, markers=colnames(mapper$nodeStats$q50),
   layout <- create_layout(mapper$gr, layout="fr")
   size <- sapply(mapper$nodes, length)
 
+  if (!is.null(mapper$community))
+    comm <- data.frame(x=layout$x,
+                       y=layout$y,
+                       c=mapper$community) %>%
+    group_by(c) %>%
+    summarise(x=median(x), y=median(y))
+
   for (marker in markers) {
     message(marker)
     g <- ggraph(layout) +
       geom_edge_link(aes(alpha = weight)) +
-      geom_node_point(aes(size=size, color=mapper$nodeStats$q50[,marker])) +
-      scale_color_gradient(low = "black", high = "red", name = marker) +
-      scale_size(range=c(2,6)) +
+      geom_node_point(shape=21, aes(size = size,
+                                    fill = mapper$nodeStats$q50[,marker])) +
+      scale_fill_gradient2(low = "white", mid="white",
+                           high = "red",name = marker) +
+      scale_size(range=c(1,6), name="count") +
       scale_edge_alpha(guide="none") +
       theme_graph(base_family = "sans")
+
+    if (!is.null(mapper$community))
+      g <- g + geom_label(data=comm, aes(x=x,y=y,label=c),
+                          alpha=0.5, inherit.aes = FALSE)
+
 
     if (device == "png") {
       png(paste0(path, marker, ".png"), width=1200, height=1000)
@@ -45,6 +59,7 @@ plotMapper <- function(mapper, markers=colnames(mapper$nodeStats$q50),
       geom_edge_link(aes(alpha = weight)) +
       geom_node_point(aes(color=community, size=size)) +
       scale_edge_alpha(guide="none") +
+      scale_size(range=c(1,6), name="count") +
       theme_graph(base_family = "sans") +
       theme(text=element_text(size = 18))
 
@@ -59,6 +74,76 @@ plotMapper <- function(mapper, markers=colnames(mapper$nodeStats$q50),
     }
   }
 }
+
+#
+# plotMapper <- function (mapper, markers = colnames(mapper$nodeStats$q50),
+#                         path = "", device = "png")
+# {
+#   if (device != "png" & device != "pdf")
+#     stop("Supported devices are png and pdf.")
+#   layout <- create_layout(mapper$gr, layout = "fr")
+#   size <- sapply(mapper$nodes, length)
+#
+#   comm <- data.frame(x=layout$x,
+#                      y=layout$y,
+#                      c=mapper$community) %>%
+#     group_by(c) %>%
+#     summarise(x=median(x), y=median(y))
+#
+#   for (marker in markers) {
+#     message(marker)
+#     g <- ggraph(layout) +
+#       geom_edge_link(aes(alpha = weight)) +
+#       geom_node_point(shape=21, aes(size = size,
+#                                     fill = mapper$nodeStats$q50[,marker])) +
+#       scale_fill_gradient2(low = "white", mid="white",
+#                            high = "red",name = marker) +
+#       scale_size(range = c(1,6), name="count") +
+#       scale_edge_alpha(guide = "none") +
+#       geom_label(data=comm, aes(x=x,y=y,label=c), alpha=0.5, inherit.aes = FALSE) +
+#       theme_graph(base_family = "sans")
+#     if (device == "png") {
+#       png(paste0(path, marker, ".png"), width = 1200,
+#           height = 1000)
+#       plot(g)
+#       dev.off()
+#     }
+#     else {
+#       pdf(paste0(path, marker, ".pdf"), width = 12, height = 10)
+#       plot(g)
+#       dev.off()
+#     }
+#   }
+#   if (!is.null(mapper$community)) {
+#     # if (is.null(mapper$labels)) {
+#     cellType <- mapper$community
+#     # } else {
+#     #   cellType <- mapper$labels[mapper$community]
+#     # }
+#     #
+#     g <- ggraph(layout) +
+#       geom_edge_link(aes(alpha = weight)) +
+#       geom_node_point(aes(color = cellType, size = size)) +
+#       scale_edge_alpha(guide = "none") +
+#       # guides(size=FALSE, color=guide_legend(ncol=1)) +
+#       guides(size=FALSE,color=FALSE)+
+#       geom_text(data=comm, aes(x=x,y=y,label=c), inherit.aes = FALSE) +
+#       theme_graph(base_family = "sans") +
+#       theme(text = element_text(size = 18))
+#     if (device == "png") {
+#       png(paste0(path, "Community.png"), width = 1500,
+#           height = 1000)
+#       plot(g)
+#       dev.off()
+#     }
+#     else {
+#       pdf(paste0(path, "Community.pdf"), width = 15, height = 10)
+#       plot(g)
+#       dev.off()
+#     }
+#   }
+# }
+
 
 
 #' @title plotMapperInteractive
