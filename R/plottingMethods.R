@@ -3,15 +3,12 @@
 #' each of the specified markers.
 #' @param mapper Existing mapper object.
 #' @param markers A subset of the marker names.
-#' @param community A factor giving community membership of the
-#' nodes. If present, an additional plot color-coded by community
-#' membership is generated.
 #' @param path The path where plots are saved.
 #' @param device The device used for image encoding. Supports
 #' png for bitmaps, pdf for vector graphics.
 #' @export
 plotMapper <- function(mapper, markers=colnames(mapper$nodeStats$q50),
-                       community=NULL, path = "", device="png") {
+                       path = "", device="png") {
 
   if (device!="png" & device!="pdf")
     stop("Supported devices are png and pdf.")
@@ -44,7 +41,7 @@ plotMapper <- function(mapper, markers=colnames(mapper$nodeStats$q50),
 
 
     if (device == "png") {
-      png(paste0(path, marker, ".png"), width=1200, height=1000)
+      png(paste0(path, marker, ".png"), width=1200, height=1000, res=120)
       plot(g)
       dev.off()
     } else {
@@ -54,10 +51,11 @@ plotMapper <- function(mapper, markers=colnames(mapper$nodeStats$q50),
     }
   }
 
-  if (!is.null(community)) {
+  if (!is.null(mapper$community)) {
     g <- ggraph(layout) +
       geom_edge_link(aes(alpha = weight)) +
-      geom_node_point(aes(color=community, size=size)) +
+      geom_node_point(aes(color=mapper$community, size=size)) +
+      scale_color_discrete(name="community") +
       scale_edge_alpha(guide="none") +
       scale_size(range=c(1,6), name="count") +
       theme_graph(base_family = "sans") +
@@ -75,83 +73,11 @@ plotMapper <- function(mapper, markers=colnames(mapper$nodeStats$q50),
   }
 }
 
-#
-# plotMapper <- function (mapper, markers = colnames(mapper$nodeStats$q50),
-#                         path = "", device = "png")
-# {
-#   if (device != "png" & device != "pdf")
-#     stop("Supported devices are png and pdf.")
-#   layout <- create_layout(mapper$gr, layout = "fr")
-#   size <- sapply(mapper$nodes, length)
-#
-#   comm <- data.frame(x=layout$x,
-#                      y=layout$y,
-#                      c=mapper$community) %>%
-#     group_by(c) %>%
-#     summarise(x=median(x), y=median(y))
-#
-#   for (marker in markers) {
-#     message(marker)
-#     g <- ggraph(layout) +
-#       geom_edge_link(aes(alpha = weight)) +
-#       geom_node_point(shape=21, aes(size = size,
-#                                     fill = mapper$nodeStats$q50[,marker])) +
-#       scale_fill_gradient2(low = "white", mid="white",
-#                            high = "red",name = marker) +
-#       scale_size(range = c(1,6), name="count") +
-#       scale_edge_alpha(guide = "none") +
-#       geom_label(data=comm, aes(x=x,y=y,label=c), alpha=0.5, inherit.aes = FALSE) +
-#       theme_graph(base_family = "sans")
-#     if (device == "png") {
-#       png(paste0(path, marker, ".png"), width = 1200,
-#           height = 1000)
-#       plot(g)
-#       dev.off()
-#     }
-#     else {
-#       pdf(paste0(path, marker, ".pdf"), width = 12, height = 10)
-#       plot(g)
-#       dev.off()
-#     }
-#   }
-#   if (!is.null(mapper$community)) {
-#     # if (is.null(mapper$labels)) {
-#     cellType <- mapper$community
-#     # } else {
-#     #   cellType <- mapper$labels[mapper$community]
-#     # }
-#     #
-#     g <- ggraph(layout) +
-#       geom_edge_link(aes(alpha = weight)) +
-#       geom_node_point(aes(color = cellType, size = size)) +
-#       scale_edge_alpha(guide = "none") +
-#       # guides(size=FALSE, color=guide_legend(ncol=1)) +
-#       guides(size=FALSE,color=FALSE)+
-#       geom_text(data=comm, aes(x=x,y=y,label=c), inherit.aes = FALSE) +
-#       theme_graph(base_family = "sans") +
-#       theme(text = element_text(size = 18))
-#     if (device == "png") {
-#       png(paste0(path, "Community.png"), width = 1500,
-#           height = 1000)
-#       plot(g)
-#       dev.off()
-#     }
-#     else {
-#       pdf(paste0(path, "Community.pdf"), width = 15, height = 10)
-#       plot(g)
-#       dev.off()
-#     }
-#   }
-# }
-
-
 
 #' @title plotMapperInteractive
 #' @description Generates an interactive plot of the network and
 #' saves it as an html file.
 #' @param mapper Existing mapper object.
-#' @param community A factor giving community membership of the
-#' nodes.
 #' @param color A factor or numeric vector which is mapped to the
 #' color of the nodes.
 #' @param labels A character vector describing each node, displayed
@@ -160,8 +86,8 @@ plotMapper <- function(mapper, markers=colnames(mapper$nodeStats$q50),
 #' @param title The name of the output html file.
 #' @import ggiraph
 #' @export
-plotMapperInteractive <- function(mapper, community, color=community,
-                                  labels=paste0("Community: ", community, "\n"),
+plotMapperInteractive <- function(mapper, color=mapper$community,
+                                  labels=paste0("Community: ", mapper$community, "\n"),
                                   path="", title="HiTMapper") {
   size <- sapply(mapper$nodes, length)
   layout <- create_layout(mapper$gr, layout="fr")
@@ -171,7 +97,7 @@ plotMapperInteractive <- function(mapper, community, color=community,
     geom_edge_link(aes(alpha=weight)) +
     geom_point_interactive(mapping = aes(x = x, y = y, size=size,
                                          color = color,
-                                         data_id = community,
+                                         data_id = mapper$community,
                                          tooltip = labels)) +
     scale_size(range = c(0.5,3)) +
     scale_edge_alpha(guide="none") +

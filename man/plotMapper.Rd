@@ -7,7 +7,6 @@
 plotMapper(
   mapper,
   markers = colnames(mapper$nodeStats$q50),
-  community = NULL,
   path = "",
   device = "png"
 )
@@ -16,10 +15,6 @@ plotMapper(
 \item{mapper}{Existing mapper object.}
 
 \item{markers}{A subset of the marker names.}
-
-\item{community}{A factor giving community membership of the
-nodes. If present, an additional plot color-coded by community
-membership is generated.}
 
 \item{path}{The path where plots are saved.}
 

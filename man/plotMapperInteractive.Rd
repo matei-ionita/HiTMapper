@@ -6,18 +6,14 @@
 \usage{
 plotMapperInteractive(
   mapper,
-  community,
-  color = community,
-  labels = paste0("Community: ", community, "\\n"),
+  color = mapper$community,
+  labels = paste0("Community: ", mapper$community, "\\n"),
   path = "",
   title = "HiTMapper"
 )
 }
 \arguments{
 \item{mapper}{Existing mapper object.}
-
-\item{community}{A factor giving community membership of the
-nodes.}
 
 \item{color}{A factor or numeric vector which is mapped to the
 color of the nodes.}
