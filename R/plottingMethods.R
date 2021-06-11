@@ -8,7 +8,7 @@
 #' png for bitmaps, pdf for vector graphics.
 #' @export
 plotMapper <- function(mapper, markers=colnames(mapper$nodeStats$q50),
-                       path = "", device="png") {
+                       path = NULL, device="png") {
 
   if (device!="png" & device!="pdf")
     stop("Supported devices are png and pdf.")
@@ -39,15 +39,18 @@ plotMapper <- function(mapper, markers=colnames(mapper$nodeStats$q50),
       g <- g + geom_label(data=comm, aes(x=x,y=y,label=c),
                           alpha=0.5, inherit.aes = FALSE)
 
-
-    if (device == "png") {
-      png(paste0(path, marker, ".png"), width=1200, height=1000, res=120)
+    if (is.null(path)) {
       plot(g)
-      dev.off()
     } else {
-      pdf(paste0(path, marker, ".pdf"), width=12, height=10)
-      plot(g)
-      dev.off()
+      if (device == "png") {
+        png(paste0(path, marker, ".png"), width=1200, height=1000, res=120)
+        plot(g)
+        dev.off()
+      } else {
+        pdf(paste0(path, marker, ".pdf"), width=12, height=10)
+        plot(g)
+        dev.off()
+      }
     }
   }
 
@@ -61,14 +64,18 @@ plotMapper <- function(mapper, markers=colnames(mapper$nodeStats$q50),
       theme_graph(base_family = "sans") +
       theme(text=element_text(size = 18))
 
-    if (device == "png") {
-      png(paste0(path, "Community.png"), width=1200, height=1000)
+    if (is.null(path)) {
       plot(g)
-      dev.off()
     } else {
-      pdf(paste0(path, "Community.pdf"), width=12, height=10)
-      plot(g)
-      dev.off()
+      if (device == "png") {
+        png(paste0(path, "Community.png"), width=1200, height=1000)
+        plot(g)
+        dev.off()
+      } else {
+        pdf(paste0(path, "Community.pdf"), width=12, height=10)
+        plot(g)
+        dev.off()
+      }
     }
   }
 }

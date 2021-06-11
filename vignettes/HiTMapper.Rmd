@@ -12,11 +12,8 @@ output:
 knitr::opts_chunk$set(echo = TRUE)
 library(HiTMapper)
 library(ggraph)
-library(ggiraph)
-library(magrittr)
+library(tidyverse)
 ```
-
-## R Markdown
 
 Load the example dataset, originally from the FlowSOM package.
 
@@ -27,83 +24,77 @@ head(lymphocytes)
 
 
 Obtain the network and prune some low-weight edges (to speed up the plotting 
-without noticeable impact on performance). 
-Use the Leiden method to detect communities.
+without noticeable impact on performance). For the moment, you need to provide
+the data in matrix or data frame format, aggregated from all fcs files of interest.
 
 ```{r mapper}
-
 set.seed(52)
-mapper <- HiTMapper(lymphocytes, kNodes = 400, overlap = 0.3,
-                    outlierCutoff = 25)
-mapper <- pruneEdges(mapper, cutoff=0.05)
-
-community <- leidenClustering(mapper$gr, resolution = 2.5)
+mapper <- HiTMapper(lymphocytes, kNodes = 400, overlap = 0.2,
+                    outlierCutoff = 20)
+mapper <- pruneEdges(mapper, cutoff=0.01)
 ```
 
-Create a 2D layout of the network and save it for downstream plotting.
+The function `getCommunitiesFeatures()` is a wrapper around three functionalities:
+1. community detection using the Leiden algorithm;
+2. computing median marker expression for each community, and labeling communities based on a table of user-provided phenotypes;
+3. computing a sample-by-community contingency table (the "features" are percentages of cells from each sample which belong to a given community).
+It needs as input the phenotype definitions and the assignment of cells to biological samples.
 
-```{r layout}
-layout <- create_layout(mapper$gr, layout="fr")
-size <- sapply(mapper$nodes, length)
+Load the phenotype table. Phenotypes should be listed along the rows, with "lo", "hi" used to indicate
+the marker modality which defines the phenotype. Missing values, or values other than "lo", "hi", indicate
+markers which do not contribute to the phenotype definition.
+```{r defs}
+data("defs")
+defs
 ```
 
-Label the communities, using human knowledge about the markers.
-
-```{r label}
-mapping <- assignCells(lymphocytes, mapper, community)
-
-medians <- sapply(levels(community), function(l) {
-  apply(lymphocytes[which(mapping==l),], 2, median)
-}) %>% t()
-
-binary <- medians > 1.7
-
-labels <- rep("Myeloid", nrow(medians))
-labels[which(binary[,"CD4"])] <- "T cell CD4"
-labels[which(binary[,"CD8"])] <- "T cell CD8"
-labels[which(binary[,"NK1.1"])] <- "NK cell"
-labels[which(binary[,"CD19"])] <- "B cell"
-labels[which(binary[,"TCRyd"])] <- "T cell gd"
-
-labels[which(!binary[,"CD45"])] <- "Not leukocyte"
-labels[which(binary[,"NK1.1"]&binary[,"CD3"])] <- "NK T cell"
-labels[which(binary[,"CD8"]&!(binary[,"CD3"]))] <- "CD8 no CD3"
-labels[which(binary[,"TCRb"]&!(binary[,"CD8"])&
-            !(binary[,"CD4"])&!(binary[,"NK1.1"]))] <- "T cell other"
-cellType <- as.factor(labels[community])
+In the example data, we have a single sample.
+```{r samples}
+sample_mapping <- rep("1", nrow(lymphocytes))
 ```
 
-Plot the cell type assignment.
+Compute communities and features, and augment the mapper object with the result. 
+The `resolution` parameter is passed to the Leiden method;
+a higher resolution means more resulting communities.
+```{r communities_features}
+mapper <- getCommunitiesFeatures(lymphocytes, sample_mapping, mapper, defs, resolution=2)
+levels(mapper$community)
+mapper$features
+```
+
+You can use the `ggraph` package to make various network plots;
+just provide the `gr` field of the mapper object, which contains
+the graph. For example, color the nodes by community assignment.
+The layout is non-deterministic; try out a couple of random seeds.
 
 ```{r communities}
-ggraph(layout) +
+set.seed(52)
+community <- mapper$community
+size <- sapply(mapper$nodes, length)
+
+ggraph(mapper$gr, layout="fr") +
   geom_edge_link(aes(alpha = weight)) +
-  geom_node_point(aes(color = cellType, size=size)) +
-  scale_color_brewer(palette = "Paired") +
+  geom_node_point(aes(color = community, size=size)) +
   scale_edge_alpha(guide="none") +
   theme_graph(base_family = "sans") +
   theme(text=element_text(size = 18))
 ```
 
-
-Check the distribution of various markers in the Mapper graph, 
-and their agreement with the cell types.
+Alternatively, use the built-in `plotMapper` function, which
+plots the distribution of various markers in the Mapper graph, 
+and their agreement with the community assignment. The `path`
+argument can be used to save plots to files; this is recommended
+when plotting multiple markers.
 
 ```{r distribution}
+set.seed(52)
 markers <- c("CD3", "CD8", "CD19", "NK1.1")
-for(marker in markers) {
-  color <- mapper$nodeStats$q50[,marker]
-  g <- ggraph(layout) +
-    geom_edge_link(aes(alpha = weight)) +
-    geom_node_point(aes(color=color, size=size)) +
-    scale_color_gradient(low="black", high="red", name=marker) +
-    scale_edge_alpha(guide="none") +
-    theme_graph(base_family = "sans") +
-    theme(text=element_text(size = 18))
-
-  plot(g)
-}
-
+plotMapper(mapper, markers=markers, path=NULL)
 ```
+
+Also check out the function `plotMapperInteractive`, which outputs
+interactive network plots in html format.
+
+
 
 

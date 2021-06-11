@@ -7,7 +7,7 @@
 plotMapper(
   mapper,
   markers = colnames(mapper$nodeStats$q50),
-  path = "",
+  path = NULL,
   device = "png"
 )
 }
