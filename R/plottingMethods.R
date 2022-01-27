@@ -1,4 +1,4 @@
-#' @title plotMapper
+#' @title plot_mapper
 #' @description Generates plots of the network color-coded by
 #' each of the specified markers.
 #' @param mapper Existing mapper object.
@@ -7,7 +7,7 @@
 #' @param device The device used for image encoding. Supports
 #' png for bitmaps, pdf for vector graphics.
 #' @export
-plotMapper <- function(mapper, markers=colnames(mapper$nodeStats$q50),
+plot_mapper <- function(mapper, markers=colnames(mapper$node_stats$q50),
                        path = NULL, device="png") {
 
   if (device!="png" & device!="pdf")
@@ -28,7 +28,7 @@ plotMapper <- function(mapper, markers=colnames(mapper$nodeStats$q50),
     g <- ggraph(layout) +
       geom_edge_link(aes(alpha = weight)) +
       geom_node_point(shape=21, aes(size = size,
-                                    fill = mapper$nodeStats$q50[,marker])) +
+                                    fill = mapper$node_stats$q50[,marker])) +
       scale_fill_gradient2(low = "white", mid="white",
                            high = "red",name = marker) +
       scale_size(range=c(1,6), name="count") +
@@ -81,7 +81,7 @@ plotMapper <- function(mapper, markers=colnames(mapper$nodeStats$q50),
 }
 
 
-#' @title plotMapperInteractive
+#' @title plot_mapper_interactive
 #' @description Generates an interactive plot of the network and
 #' saves it as an html file.
 #' @param mapper Existing mapper object.
@@ -93,7 +93,7 @@ plotMapper <- function(mapper, markers=colnames(mapper$nodeStats$q50),
 #' @param title The name of the output html file.
 #' @import ggiraph
 #' @export
-plotMapperInteractive <- function(mapper, color=mapper$community,
+plot_mapper_interactive <- function(mapper, color=mapper$community,
                                   labels=paste0("Community: ", mapper$community, "\n"),
                                   path="", title="HiTMapper") {
   size <- sapply(mapper$nodes, length)
@@ -117,10 +117,9 @@ plotMapperInteractive <- function(mapper, color=mapper$community,
                      opts_hover(css="stroke:black;"),
                      opts_hover_inv(css="opacity:0.3;")
                    ))
-  outName <- paste0(path, title, ".html")
-  htmlwidgets::saveWidget(myplot, outName)
+  out_name <- paste0(path, title, ".html")
+  htmlwidgets::saveWidget(myplot, out_name)
 }
-
 
 
 

@@ -3,8 +3,6 @@
 #' @import igraph
 #' @import ggraph
 #' @import leidenAlg
-#' @import e1071
-#' @import rdist
 NULL
 
 
@@ -12,97 +10,129 @@ NULL
 #' @description Wrapper for the core Mapper functionality.
 #' @param data A data matrix or data frame, with observations
 #' along rows and variables along columns.
-#' @param kNodes Approximate number of nodes for the Mapper graph.
-#' @param outlierCutoff Discard nodes containing fewer cells than this.
+#' @param total_nodes Approximate number of nodes for the Mapper graph.
+#' @param outlier_cutoff Discard nodes containing fewer cells than this.
 #' @param nx Number of bins for the first filter dimension.
 #' @param ny Number of bins for the second filter dimension.
 #' @param overlap Fraction of overlap between neighboring bins.
 #' @param scale Logical, whether to scale the data before PCA.
 #' @param verbose Logical, whether to output detailed info.
 #' @export
-HiTMapper <- function(data, kNodes, outlierCutoff=nrow(data)/1e4,
-                      nx=10, ny=10, overlap=0.3,
-                      scale = FALSE, verbose=FALSE,
-                      npc = NULL, filter=NULL) {
+HiTMapper <- function(data, total_nodes, outlier_cutoff=nrow(data)/1e4,
+                      nx=10, ny=10, overlap=0.15,
+                      scale = FALSE, verbose=FALSE, filter=NULL,
+                      merge=TRUE, resolution=8,
+                      w = rep(1, ncol(data))) {
 
   if(!is.matrix(data) & !is.data.frame(data))
     stop("Please enter your data in matrix or data.frame format.")
 
   if (is.null(filter)) {
     message("Computing filter function...")
-    if (scale) {
-      cov <- cor(data)
-    } else {
-      cov <- cov(data)
-    }
-    pr <- princomp(covmat=cov, scores=FALSE)
-    pr$center <- apply(data, 2, mean)
-    filter <- applyPCA(data, pr)
+    filter <- get_filter(data, scale)
   }
 
-  message("Computing level sets...")
-  levelSets <- getLevelSets(filter = filter, nx=nx, ny=ny, overlap=overlap)
-  bins <- applyLevelSets(filter = filter, levelSets = levelSets)
-  rm(filter)
-  gc()
-
-  message("Clustering the level sets...")
-  cluster <- clusterLevelSets(data, bins, kNodes=kNodes,
-                              outlierCutoff=outlierCutoff,
-                              verbose=verbose, npc=npc)
+  message("Computing and clustering level sets...")
+  level_sets <- get_level_sets(filter = filter, nx=nx, ny=ny, overlap=overlap)
+  bins <- apply_level_sets(filter = filter, level_sets = level_sets)
+  nodes <- cluster_level_sets(data, bins, total_nodes=total_nodes,
+                              outlier_cutoff=outlier_cutoff,
+                              verbose=verbose)
+  node_stats <- get_stats(data, nodes)
+  thresholds <- get_modality_thresholds(node_stats$q50)
 
   message("Constructing Mapper graph...")
-  inters <- getInters(cluster, mode = "iou")
-  gr <- getGraph(inters)
+  gr <- get_graph(nodes, node_stats, w)
+  mapper <- list(nodes=nodes, gr=gr, node_stats=node_stats,
+                 thresholds=thresholds)
 
-  # cluster$nodesNew <- mapToCenters(data, bins, cluster$centers)
-  nodeStats <- getStats(data, cluster$nodes)
+  message("Detecting communities...")
+  mapper <- detect_communities(mapper, data, resolution, merge)
 
-  message(paste("Done! Graph has", length(cluster$nodes), "nodes,",
-                length(E(gr)), "edges."))
+  message(paste("Done! Graph has", length(nodes), "nodes,", length(E(gr)),
+                "edges,", length(levels(mapper$community)),"communities."))
 
-  mapper <- list(bins=bins, nodes=cluster$nodes, gr=gr, nodeStats=nodeStats,
-                 inters=inters,
-                 centers=cluster$centers, levelSets=levelSets)
   return(mapper)
 }
 
 
-
-#' @title pruneEdges
-#' @description Prune edges with low weight, to obtain a sparser network
-#' and minimize spurious connections.
+#' @title detect_communities
+#' @description Use Leiden algorithm to identify communities in the
+#' HiTMapper network. A community is a group of similar nodes,
+#' which approximates the concept of "cell type".
+#' @param data A data matrix or data frame, with observations
+#' along rows and variables along columns.
 #' @param mapper Existing mapper object.
-#' @param cutoff Prune edges whose weight is smaller than this fraction of
-#' the maximum weight.
+#' @param resolution passed to the Leiden algorithm, controls
+#' the number of communities. Increase for more, decrease for fewer.
+#' @param merge Logical, whether to merge communities which have the same
+#' modality across all markers in the data. It is recommended to use a
+#' large resolution to obtain many communities, some of which are then merged.
 #' @export
-pruneEdges <- function(mapper, cutoff=0.01) {
-  if (cutoff < 0 | cutoff > 1)
-    stop("Cutoff must be given as fraction of the max weight; please enter
-         a value between 0 and 1.")
+detect_communities <- function(mapper, data, resolution=8, merge=TRUE) {
+  community <- leiden_clustering(mapper$gr, resolution)
+  community_medians <- get_community_medians(community, mapper$nodes, data)
 
-  inters <- mapper$inters / max(mapper$inters)
-  inters[which(inters<cutoff)] <- 0
+  diff <- sweep(community_medians, 2, mapper$thresholds)
+  modality <- diff
+  modality[which(diff<=0)] <- "lo"
+  modality[which(diff>0)] <- "hi"
 
-  n0 <- length(E(mapper$gr))
-  mapper$gr <- getGraph(inters)
-  n1 <- length(E(mapper$gr))
+  if (merge) {
+    group_index <- merge_communities(modality)
+    community <- group_index[community] %>% as.factor()
+    community_medians <- get_community_medians(community, mapper$nodes, data)
 
-  message(paste("Pruned", n0, "edges down to", n1, "."))
+    dup <- duplicated(group_index)
+    modality <- modality[which(!dup),]
+  }
+
+  mapper$community <- community
+  mapper$community_medians <- community_medians
+  mapper$modality <- modality
   return(mapper)
 }
 
 
-#' @title leidenClustering
-#' @description Community detection using Leiden method.
-#' @param graph An igraph object, for example, from the output of HiTMapper.
-#' @param resolution Numeric value controlling the number of communities:
-#' increase for more, decrease for fewer.
+#' @title extract_features
+#' @description Extract features (cell type proportions across samples)
+#' node compositions (node proportions across samples).
+#' @param data A data matrix or data frame, with observations
+#' along rows and variables along columns.
+#' @param sample_mapping A vector giving the sample membership of
+#' each data point.
+#' @param mapper Existing mapper object.
 #' @export
-leidenClustering <- function(graph, resolution=1) {
-  leid <- leiden.community(graph, resolution=resolution)
-  clust <- as.factor(leid$membership)
-  return(clust)
+extract_features <- function(data, sample_mapping, mapper) {
+  community_mapping <- assign_cells(data, mapper, mapper$community)
+  mapper$features <- get_contingency_table(community_mapping, sample_mapping)
+  mapper$node_composition <- node_composition(mapper, sample_mapping)
+  mapper$sample_names <- unique(sample_mapping)
+  return(mapper)
+}
+
+
+#' @title label_communities
+#' @description Wrapper for community detection, labeling,
+#' and extracting features (cell type percentages).
+#' @param mapper Existing mapper object.
+#' @param defs Data frame of phenotype definitions.
+#' @param additional Named list, specifying attributes to be
+#' appended to phenotypes. E.g. list(CD38="activated", Ki67="proliferating").
+#' @export
+label_communities <- function(mapper, defs, additional=list()) {
+  matches <- match_defs(defs, mapper$modality)
+  phenos <- c(defs$Phenotype, "Other")
+  labels <- phenos[matches]
+  labels <- append_additional(additional, mapper$modality, labels, matches)
+  labels <- make.unique(labels)
+
+  levels(mapper$community) <- labels
+  row.names(mapper$community_medians) <- labels
+  if (!is.null(mapper$features)) {
+    colnames(mapper$features) <- c(labels, "Unassigned")
+  }
+  return(mapper)
 }
 
 
@@ -111,11 +141,11 @@ leidenClustering <- function(graph, resolution=1) {
 #' @param data A data matrix or data frame, with observations
 #' along rows and variables along columns.
 #' @param scale Logical, whether to scale the data before PCA.
-#' @param plotPath Generate plots of the filter color-coded by
+#' @param plot_path Generate plots of the filter color-coded by
 #' each of the variables in the data matrix and save them at this path.
 #' No plots generated unless path is provided.
 #' @export
-getFilter <- function(data, scale=FALSE, plotPath=NULL) {
+get_filter <- function(data, scale=FALSE, plot_path=NULL) {
   if(!is.matrix(data) & !is.data.frame(data))
     stop("Please enter your data in matrix or data.frame format.")
 
@@ -126,129 +156,14 @@ getFilter <- function(data, scale=FALSE, plotPath=NULL) {
   }
   pr <- princomp(covmat=cov, scores=FALSE)
   pr$center <- apply(data, 2, mean)
-  filter <- applyPCA(data, pr)
+  filter <- apply_PCA(data, pr)
 
   # To do: show the overlapping bins on the PCA plot,
   # to help visualize what Mapper is doing
-  if(!is.null(plotPath))
-    plotFilter(data,filter,plotPath)
+  if(!is.null(plot_path))
+    plotFilter(data,filter,plot_path)
 
   return(filter)
 }
-
-
-#' @title assignCells
-#' @description Map individual data points to network nodes or communities.
-#' @param data A data matrix or data frame.
-#' @param mapper Existing mapper object.
-#' @param community A factor giving community membership for the nodes.
-#' If present, outputs mapping of data points to communities. If absent,
-#' outputs mapping of data points to network nodes.
-#' @export
-assignCells <- function(data, mapper, community=NULL) {
-  if(!is.matrix(data) & !is.data.frame(data))
-    stop("Please enter your data in matrix or data.frame format.")
-
-  mapping <- integer(nrow(data))
-  distances <- numeric(nrow(data)) + Inf
-
-  for (i in seq_along(mapper$nodes)) {
-    node <- mapper$nodes[[i]]
-    m <- mapper$nodeStats$q50[i,]
-
-    distNew <- (t(data[node,])-m)^2 %>% apply(2, sum)
-    closer <- which(distNew < distances[node])
-
-    distances[node[closer]] <- distNew[closer]
-    mapping[node[closer]] <- i
-  }
-  distances <- sqrt(distances)
-
-  if (!is.null(community)) {
-    # Some cells are unassigned
-    n <- length(mapper$nodes)
-    mapping[which(mapping==0)] <- n+1
-    communityAugmented <- c(as.character(community), "Unassigned") %>%
-      as.factor()
-
-    mapping <- communityAugmented[mapping]
-  }
-
-  df <- data.frame(mapping=mapping,dist=distances)
-  return(df)
-}
-
-
-
-#' @title nodeComposition
-#' @description Contingency table of sample vs node membership.
-#' @param mapper Existing mapper object.
-#' @param samples An integer vector, containing the sample of
-#' origin for each data point.
-#' @param scale Logical, whether the contingency table should
-#' be scaled across features. (Scaling across samples takes
-#' place either way.
-#' @export
-nodeComposition <- function(mapper, samples, scale=FALSE) {
-  if (is.factor(samples)) {
-    unq <- levels(samples)
-  } else {
-    unq <- unique(samples)
-  }
-
-  counts <- lapply(mapper$nodes, function(node) {samples[node] %>% table}) %>%
-    sapply(function(v) {
-      w <- v[unq]
-      w[which(is.na(names(w)))] <- 0
-      return(unname(w))
-    })
-
-  if (length(unq) == 1)
-    counts <- matrix(counts, nrow=1)
-
-  pctg <- apply(counts, 1, function(row) {
-    if (sum(row) == 0)
-      return(row)
-    return(row / sum(row))
-  }) %>% t()
-
-  if(scale)
-    pctg <- apply(pctg, 2, function(col) {
-      if (sum(col) == 0)
-        return(col)
-      return(col / sum(col))
-    })
-
-  return(data.frame(pctg))
-}
-
-
-#' @title getCommunitiesFeatures
-#' @description Wrapper for communitiy detection, labeling,
-#' and extracting features (cell type percentages).
-#' @param mapper Existing mapper object.
-#' @export
-getCommunitiesFeatures <- function(data, sample_mapping,
-                                   mapper, defs, additional=list(), resolution=2) {
-  mapper <- calibrate_weights(mapper)
-  community <- leidenClustering(mapper$gr, resolution = resolution)
-  mapper$community <- community
-  mapper$community_medians <- get_community_medians(community,mapper, data)
-
-  community <- get_labels(mapper, defs, additional)
-  mapper$community <- community
-  mapper$community_medians <- get_community_medians(community,mapper, data)
-  community_mapping <- assignCells(data, mapper, community)$mapping
-  mapper$features <- get_contingency_table(community_mapping, sample_mapping) %>%
-    data.frame()
-  mapper$node_composition <- nodeComposition(mapper, sample_mapping,
-                                             scale = FALSE) %>% as.matrix()
-  mapper$sample_names <- unique(sample_mapping) %>%
-    str_split(pattern = "-") %>% sapply(function(x) paste0(x[2], "-", x[3]))
-  return(mapper)
-}
-
-
-
 
 

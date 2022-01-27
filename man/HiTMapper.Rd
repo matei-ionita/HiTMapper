@@ -6,24 +6,26 @@
 \usage{
 HiTMapper(
   data,
-  kNodes,
-  outlierCutoff = nrow(data)/10000,
+  total_nodes,
+  outlier_cutoff = nrow(data)/10000,
   nx = 10,
   ny = 10,
-  overlap = 0.3,
+  overlap = 0.15,
   scale = FALSE,
   verbose = FALSE,
-  npc = NULL,
-  filter = NULL
+  filter = NULL,
+  merge = TRUE,
+  resolution = 8,
+  w = rep(1, ncol(data))
 )
 }
 \arguments{
 \item{data}{A data matrix or data frame, with observations
 along rows and variables along columns.}
 
-\item{kNodes}{Approximate number of nodes for the Mapper graph.}
+\item{total_nodes}{Approximate number of nodes for the Mapper graph.}
 
-\item{outlierCutoff}{Discard nodes containing fewer cells than this.}
+\item{outlier_cutoff}{Discard nodes containing fewer cells than this.}
 
 \item{nx}{Number of bins for the first filter dimension.}
 

@@ -1,4 +1,4 @@
-getLevelSets <- function(filter, nx = 10, ny = 10, overlap = 0.1) {
+get_level_sets <- function(filter, nx = 10, ny = 10, overlap = 0.1) {
   # Split the dimensionally reduced space into overlapping bins
   # Assuming 2D. Setting ny=1 is effectively 1D.
 
@@ -17,19 +17,18 @@ getLevelSets <- function(filter, nx = 10, ny = 10, overlap = 0.1) {
   y0 <- miny + seq(0,ny-1)*sizey*(1+overlap)
   y1 <- y0 + sizey*(1+2*overlap)
 
-  levelSets <- list(x0=x0, x1=x1, y0=y0, y1=y1)
-  return(levelSets)
+  level_sets <- list(x0=x0, x1=x1, y0=y0, y1=y1)
+  return(level_sets)
 }
 
+apply_level_sets <- function(filter, level_sets, outlier_cutoff = 0) {
+  nx <- length(level_sets$x0)
+  ny <- length(level_sets$y0)
 
-applyLevelSets <- function(filter, levelSets, outlierCutoff = 0) {
-  nx <- length(levelSets$x0)
-  ny <- length(levelSets$y0)
-
-  binsx <- lapply(seq(nx), function(i) which(filter[,1] >= levelSets$x0[i] &
-                                             filter[,1] <= levelSets$x1[i]))
-  binsy <- lapply(seq(ny), function(j) which(filter[,2] >= levelSets$y0[j] &
-                                             filter[,2] <= levelSets$y1[j]))
+  binsx <- lapply(seq(nx), function(i) which(filter[,1] >= level_sets$x0[i] &
+                                             filter[,1] <= level_sets$x1[i]))
+  binsy <- lapply(seq(ny), function(j) which(filter[,2] >= level_sets$y0[j] &
+                                             filter[,2] <= level_sets$y1[j]))
   bins <- list()
   for (i in seq(nx))
     for (j in seq(ny)) {
@@ -38,16 +37,16 @@ applyLevelSets <- function(filter, levelSets, outlierCutoff = 0) {
     }
 
   counts <- sapply(bins, length)
-  bins <- bins[which(counts >= outlierCutoff)]
+  bins <- bins[which(counts >= outlier_cutoff)]
 
   return(bins)
 }
 
 
-clusterLevelSets <- function(data, bins, kNodes, outlierCutoff,
+cluster_level_sets <- function(data, bins, total_nodes, outlier_cutoff,
                              verbose, npc, method="kmeans") {
   if (method == "kmeans")
-    return(clusterKmeans(data, bins, kNodes, outlierCutoff, npc, verbose))
+    return(cluster_kmeans(data, bins, total_nodes, outlier_cutoff))
 
   # Enter more methods here?
 
@@ -55,151 +54,110 @@ clusterLevelSets <- function(data, bins, kNodes, outlierCutoff,
 }
 
 
-clusterKmeans <- function(data, bins, kNodes, outlierCutoff, npc, verbose) {
-  nodes <- list()
-  centers <- list()
+cluster_kmeans <- function(data, bins, total_nodes, outlier_cutoff) {
+  all_k <- get_k(data, bins, outlier_cutoff, total_nodes)
+  nodes <- Map(function(bin, k) cluster_bin(bin, k, data, outlier_cutoff),
+               bins, all_k$binK) %>% do.call(what=c)
+  return(nodes)
+}
 
-  allK <- getK(data, bins, outlierCutoff, kNodes)
+cluster_bin <- function(bin, k, data, outlier_cutoff) {
+  if(length(bin) < outlier_cutoff)
+    return(list())
 
-  for (i in seq_along(bins)) {
-    bin <- bins[[i]]
-    if (length(bin) < outlierCutoff)
-      next
+  if(k < 2)
+    return(list(bin))
 
-    k <- allK$binK[i]
+  km <- suppressWarnings(kmeans(data[bin,], centers=k, nstart = 10))
+  new_nodes <- km$cluster %>%
+    nodes_from_mapping(bin = bin, k = k)
+  keep <- which(vapply(new_nodes, length, integer(1)) >= outlier_cutoff)
 
-    if (k < 2) {
-      nodes <- c(nodes, list(bin))
-      centers[[i]] <- data[1,,drop=FALSE]-data[1,,drop=FALSE]
-      next
-    }
-
-    if(verbose)
-      message(paste0("Bin size=", length(bin), ", k=", k))
-
-    if (is.null(npc)) {
-      km <- suppressWarnings(kmeans(data[bin,], centers=k, nstart = 10))
-    } else {
-      cov <- cov(data[bin,])
-      pr <- princomp(covmat=cov, scores=FALSE)
-      pr$center <- apply(data, 2, mean)
-      pc <- applyPCA(data[bin,], pr, rank=npc)
-
-      km <- suppressWarnings(kmeans(pc, centers=k, nstart = 10))
-    }
-
-    newNodes <- km$cluster %>%
-      nodesFromMapping(bin = bin, nCent = k)
-
-    keep <- which(sapply(newNodes, length) >= outlierCutoff)
-    centers[[i]] <- km$centers[keep,,drop=FALSE]
-    nodes <- c(nodes, newNodes[keep])
-  }
-
-  return(list(centers = centers, nodes = nodes,
-              edges = matrix(nrow=0,ncol=2)))
+  return(new_nodes[keep])
 }
 
 
-
-getK <- function(data, bins, outlierCutoff, kNodes,
+get_k <- function(data, bins, outlier_cutoff, total_nodes,
                  fracSumSq = 0.75) {
   # Allocate nodes to bins, based on a combination of
   # bin size and bin variance
 
   binLength <- sapply(bins, length)
-  notOut <- which(binLength>= outlierCutoff)
+  notOut <- which(binLength>= outlier_cutoff)
 
-  binLog <- pmax(log2(binLength/outlierCutoff),0)
-  kLog <- binLog * kNodes / sum(binLog[notOut])
+  binLog <- pmax(log2(binLength/outlier_cutoff),0)
+  kLog <- binLog * total_nodes / sum(binLog[notOut])
 
   binSumSq <- sapply(bins, function(bin) {
     if (length(bin) < 2)
       return(0)
-
     v <- var(data[bin,])
     return(sum(diag(v)))
   }) %>% sqrt()
-  kSumSq <- binSumSq * kNodes / sum(binSumSq[notOut])
+
+  kSumSq <- binSumSq * total_nodes / sum(binSumSq[notOut])
   kSumSq <- pmin(kSumSq, floor(kLog))
-  kSumSq <- kSumSq * kNodes/sum(kSumSq)
+  kSumSq <- kSumSq * total_nodes/sum(kSumSq)
 
   binK <- ceiling(fracSumSq*kSumSq + (1-fracSumSq)*kLog)
-  binK <- pmin(binK, floor(binLength/outlierCutoff))
+  binK <- pmin(binK, floor(binLength/outlier_cutoff))
 
   allK <- cbind(binLength, binLog, kLog, kSumSq, binK)
   return(data.frame(allK))
 }
 
 
-
-mapToCenters <- function(data, bins, centers) {
-  nodes <- list()
-
-  for (i in seq_along(bins)) {
-    bin <- bins[[i]]
-    if (i > length(centers) || is.null(centers[[i]]))
-      next
-
-    d <- cdist(data[bin,],centers[[i]])
-    cluster <- apply(d, 1, which.min)
-    newNodes <- nodesFromMapping(mapping=cluster, bin=bin, nCent=nrow(centers[[i]]))
-    nodes <- c(nodes, newNodes)
-  }
-
-  return(nodes)
+nodes_from_mapping <- function(mapping, bin, k) {
+  lapply(seq_len(k), function(i) bin[which(mapping==i)])
 }
 
 
-nodesFromMapping <- function(mapping, bin, nCent) {
-  nodes <- list()
+get_graph <- function(nodes, node_stats, w, cutoff=0.01) {
+  inters <- get_inters(nodes)
+  inters <- inters/max(inters)
+  inters[which(inters<cutoff)] <- 0
 
-  for (i in seq_len(nCent)) {
-    mapi <- which(mapping == i)
-    nodes[[i]] <- bin[mapi]
-  }
-
-  return(nodes)
-}
-
-getInters <- function(cluster, mode="iou") {
-  nodes <- cluster$nodes
-
-  n <- length(nodes)
-  sizes <- sapply(nodes, length)
-  inters <- matrix(0, nrow=n, ncol=n)
-
-  for (i in seq(1,n-1)) {
-    node <- nodes[[i]]
-    for (j in seq(i+1,n)) {
-      neighbor <- nodes[[j]]
-      int <- intersect(node, neighbor)
-
-      if (mode == "iou") {
-        uni <- union(node, neighbor)
-        inters[i,j] <- length(int) / length(uni)
-        inters[j,i] <- length(int) / length(uni)
-      } else {
-        inters[i,j] <- length(int)
-        inters[j,i] <- length(int)
-      }
-    }
-  }
-
-  return(inters)
-}
-
-
-getGraph <- function(inters) {
-  gr <- graph_from_adjacency_matrix(inters/max(inters),
+  gr <- graph_from_adjacency_matrix(inters,
                                     weighted = TRUE,
                                     mode="undirected")
-
+  gr <- compute_weights(gr, node_stats$q50, w)
   return(gr)
 }
 
+get_inters <- function(nodes) {
+  n <- length(nodes)
+  inters <- matrix(0, nrow=n, ncol=n)
 
-getStats <- function(data, nodes) {
+  for (i in seq(1,n-1)) {
+    for (j in seq(i+1,n)) {
+      val <- iou(nodes[[i]], nodes[[j]])
+      inters[i,j] <- val
+      inters[j,i] <- val
+    }
+  }
+  return(inters)
+}
+
+iou <- function(node, neighbor) {
+  int <- intersect(node,neighbor)
+  uni <- union(node,neighbor)
+  return(length(int)/length(uni))
+}
+
+compute_weights <- function(gr, medians, w, decay=4) {
+  medians <- sweep(medians, MARGIN=2,STATS=w,FUN="*")
+  d <- dist(medians) %>% as.matrix()
+
+  edges <- as_edgelist(gr) %>% data.frame()
+  names(edges) <- c("s", "t")
+  d_rest <- d[as.matrix(edges[,c("s","t")])]
+  new_weights <- exp(-decay*d_rest/mean(d_rest))
+
+  E(gr)$weight <- new_weights
+  return(gr)
+}
+
+get_stats <- function(data, nodes) {
   q25 <- sapply(nodes, function(node) apply(data[node,], 2, function(x) quantile(x,0.25))) %>% t()
   q50 <- sapply(nodes, function(node) apply(data[node,], 2, median)) %>% t()
   q75 <- sapply(nodes, function(node) apply(data[node,], 2, function(x) quantile(x,0.75))) %>% t()
@@ -207,8 +165,7 @@ getStats <- function(data, nodes) {
 }
 
 
-
-plotFilter <- function(data, filter, path="") {
+plot_filter <- function(data, filter, path="") {
   sel <- sample(nrow(data), min(1e5, nrow(data)))
   df <- cbind(filter[sel,], data[sel,])
 
@@ -219,15 +176,14 @@ plotFilter <- function(data, filter, path="") {
       scale_color_gradient(low = "black", high = "orange", name = param) +
       theme_bw()
 
-    pathFull <- paste0(path, "/", param, ".png")
-    png(pathFull, width=1200, height=900)
+    path_full <- paste0(path, "/", param, ".png")
+    png(path_full, width=1200, height=900)
     plot(g)
     dev.off()
   }
 }
 
-
-applyPCA <- function(data, pr, rank=2) {
+apply_PCA <- function(data, pr, rank=2) {
   if(is.matrix(data)) {
     filter <- sweep(data, MARGIN=2, STATS=pr$center) %*% pr$loadings[,seq(rank)]
   } else {
@@ -236,7 +192,3 @@ applyPCA <- function(data, pr, rank=2) {
 
   return(filter)
 }
-
-
-
-
