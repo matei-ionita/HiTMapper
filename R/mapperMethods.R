@@ -12,16 +12,18 @@ NULL
 #' along rows and variables along columns.
 #' @param total_nodes Approximate number of nodes for the Mapper graph.
 #' @param outlier_cutoff Discard nodes containing fewer cells than this.
-#' @param nx Number of bins for the first filter dimension.
-#' @param ny Number of bins for the second filter dimension.
+#' @param grid_size A vector of integers, specifying the number of
+#' overlapping bins along each principal component. Its length determines
+#' the number of principal components used.
 #' @param overlap Fraction of overlap between neighboring bins.
 #' @param scale Logical, whether to scale the data before PCA.
 #' @param verbose Logical, whether to output detailed info.
 #' @export
 HiTMapper <- function(data, total_nodes, outlier_cutoff=nrow(data)/1e4,
-                      nx=10, ny=10, overlap=0.15,
+                      grid_size=c(10,10), overlap=0.15,
                       scale = FALSE, verbose=FALSE, filter=NULL,
                       merge=TRUE, resolution=8,
+                      method="kmeans",
                       w = rep(1, ncol(data))) {
 
   if(!is.matrix(data) & !is.data.frame(data))
@@ -29,15 +31,19 @@ HiTMapper <- function(data, total_nodes, outlier_cutoff=nrow(data)/1e4,
 
   if (is.null(filter)) {
     message("Computing filter function...")
-    filter <- get_filter(data, scale)
+    rank <- length(grid_size)
+    filter <- get_filter(data, rank, scale)
   }
 
   message("Computing and clustering level sets...")
-  level_sets <- get_level_sets(filter = filter, nx=nx, ny=ny, overlap=overlap)
-  bins <- apply_level_sets(filter = filter, level_sets = level_sets)
+  level_sets <- get_level_sets(filter = filter, grid_size=grid_size, overlap=overlap)
+  bins <- apply_level_sets(filter = filter, boundaries = level_sets)
+  # level_sets <- get_level_sets(filter = filter, nx=grid_size[1], ny=grid_size[2], overlap=overlap)
+  # bins <- apply_level_sets(filter = filter, level_sets = level_sets)
+
   nodes <- cluster_level_sets(data, bins, total_nodes=total_nodes,
                               outlier_cutoff=outlier_cutoff,
-                              verbose=verbose)
+                              verbose=verbose,method=method)
   node_stats <- get_stats(data, nodes)
   thresholds <- get_modality_thresholds(node_stats$q50)
 
@@ -104,8 +110,9 @@ detect_communities <- function(mapper, data, resolution=8, merge=TRUE) {
 #' @param mapper Existing mapper object.
 #' @export
 extract_features <- function(data, sample_mapping, mapper) {
-  community_mapping <- assign_cells(data, mapper, mapper$community)
-  mapper$features <- get_contingency_table(community_mapping, sample_mapping)
+  mapper$clustering <- assign_cells(data, mapper, mapper$community)
+  mapper$features <- get_contingency_table(mapper$clustering,
+                                           sample_mapping)
   mapper$node_composition <- node_composition(mapper, sample_mapping)
   mapper$sample_names <- unique(sample_mapping)
   return(mapper)
@@ -126,12 +133,15 @@ label_communities <- function(mapper, defs, additional=list()) {
   labels <- phenos[matches]
   labels <- append_additional(additional, mapper$modality, labels, matches)
   labels <- make.unique(labels)
+  # labels <- make_unique_modality(labels, mapper$modality)
 
   levels(mapper$community) <- labels
   row.names(mapper$community_medians) <- labels
-  if (!is.null(mapper$features)) {
+  if (!is.null(mapper$features))
     colnames(mapper$features) <- c(labels, "Unassigned")
-  }
+  if (!is.null(mapper$clustering))
+    levels(mapper$clustering) <- c(levels(mapper$community), "Unassigned")
+
   return(mapper)
 }
 
@@ -145,7 +155,7 @@ label_communities <- function(mapper, defs, additional=list()) {
 #' each of the variables in the data matrix and save them at this path.
 #' No plots generated unless path is provided.
 #' @export
-get_filter <- function(data, scale=FALSE, plot_path=NULL) {
+get_filter <- function(data, rank=2, scale=FALSE, plot_path=NULL) {
   if(!is.matrix(data) & !is.data.frame(data))
     stop("Please enter your data in matrix or data.frame format.")
 
@@ -156,7 +166,7 @@ get_filter <- function(data, scale=FALSE, plot_path=NULL) {
   }
   pr <- princomp(covmat=cov, scores=FALSE)
   pr$center <- apply(data, 2, mean)
-  filter <- apply_PCA(data, pr)
+  filter <- apply_PCA(data, pr, rank)
 
   # To do: show the overlapping bins on the PCA plot,
   # to help visualize what Mapper is doing

@@ -8,18 +8,25 @@
 #' png for bitmaps, pdf for vector graphics.
 #' @export
 plot_mapper <- function(mapper, markers=colnames(mapper$node_stats$q50),
-                       path = NULL, device="png") {
+                       path = NULL, device="png", remove_smaller=0) {
 
   if (device!="png" & device!="pdf")
     stop("Supported devices are png and pdf.")
 
-  layout <- create_layout(mapper$gr, layout="fr")
   size <- sapply(mapper$nodes, length)
+  keep <- which(size > remove_smaller)
+  size <- size[keep]
+  community <- mapper$community[keep]
+
+  gr <- mapper$gr %>%
+    delete_vertices(setdiff(seq_along(mapper$nodes), keep))
+
+  layout <- create_layout(gr, layout="fr")
 
   if (!is.null(mapper$community))
     comm <- data.frame(x=layout$x,
                        y=layout$y,
-                       c=mapper$community) %>%
+                       c=community) %>%
     group_by(c) %>%
     summarise(x=median(x), y=median(y))
 
@@ -28,7 +35,7 @@ plot_mapper <- function(mapper, markers=colnames(mapper$node_stats$q50),
     g <- ggraph(layout) +
       geom_edge_link(aes(alpha = weight)) +
       geom_node_point(shape=21, aes(size = size,
-                                    fill = mapper$node_stats$q50[,marker])) +
+                                    fill = mapper$node_stats$q50[keep,marker])) +
       scale_fill_gradient2(low = "white", mid="white",
                            high = "red",name = marker) +
       scale_size(range=c(1,6), name="count") +
@@ -57,7 +64,7 @@ plot_mapper <- function(mapper, markers=colnames(mapper$node_stats$q50),
   if (!is.null(mapper$community)) {
     g <- ggraph(layout) +
       geom_edge_link(aes(alpha = weight)) +
-      geom_node_point(aes(color=mapper$community, size=size)) +
+      geom_node_point(aes(color=community, size=size)) +
       scale_color_discrete(name="community") +
       scale_edge_alpha(guide="none") +
       scale_size(range=c(1,6), name="count") +
@@ -108,7 +115,7 @@ plot_mapper_interactive <- function(mapper, color=mapper$community,
                                          tooltip = labels)) +
     scale_size(range = c(0.5,3)) +
     scale_edge_alpha(guide="none") +
-    guides(color = FALSE) +
+    guides(color = "none") +
     theme_graph(base_family = "sans")
 
   myplot <- girafe(ggobj = g,
@@ -120,6 +127,5 @@ plot_mapper_interactive <- function(mapper, color=mapper$community,
   out_name <- paste0(path, title, ".html")
   htmlwidgets::saveWidget(myplot, out_name)
 }
-
 
 

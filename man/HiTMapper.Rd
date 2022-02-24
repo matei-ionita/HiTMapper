@@ -8,14 +8,14 @@ HiTMapper(
   data,
   total_nodes,
   outlier_cutoff = nrow(data)/10000,
-  nx = 10,
-  ny = 10,
+  grid_size = c(10, 10),
   overlap = 0.15,
   scale = FALSE,
   verbose = FALSE,
   filter = NULL,
   merge = TRUE,
   resolution = 8,
+  method = "kmeans",
   w = rep(1, ncol(data))
 )
 }
@@ -27,9 +27,9 @@ along rows and variables along columns.}
 
 \item{outlier_cutoff}{Discard nodes containing fewer cells than this.}
 
-\item{nx}{Number of bins for the first filter dimension.}
-
-\item{ny}{Number of bins for the second filter dimension.}
+\item{grid_size}{A vector of integers, specifying the number of
+overlapping bins along each principal component. Its length determines
+the number of principal components used.}
 
 \item{overlap}{Fraction of overlap between neighboring bins.}
 

@@ -4,7 +4,7 @@
 \alias{get_filter}
 \title{getFilter}
 \usage{
-get_filter(data, scale = FALSE, plot_path = NULL)
+get_filter(data, rank = 2, scale = FALSE, plot_path = NULL)
 }
 \arguments{
 \item{data}{A data matrix or data frame, with observations

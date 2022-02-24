@@ -1,50 +1,64 @@
-get_level_sets <- function(filter, nx = 10, ny = 10, overlap = 0.1) {
+get_level_sets <- function(filter, grid_size=c(10,10), overlap = 0.1) {
   # Split the dimensionally reduced space into overlapping bins
-  # Assuming 2D. Setting ny=1 is effectively 1D.
 
-  minx <- min(filter[,1])
-  maxx <- max(filter[,1])
+  n <- length(grid_size)
+  extrema <- lapply(seq_len(n), function(i) c(min(filter[,i]),max(filter[,i])))
 
-  miny <- min(filter[,2])
-  maxy <- max(filter[,2])
+  widths <- Map(function(extrem, dim_size) {
+    (extrem[2]-extrem[1]) / (dim_size*(overlap+1)+overlap)
+  }, extrema, grid_size)
 
-  sizex <- (maxx-minx) / (nx*(overlap+1)+overlap)
-  sizey <- (maxy-miny) / (ny*(overlap+1)+overlap)
+  boundaries <- Map(function(extrem, dim_size, width) {
+    lower <- extrem[1] + seq(0,dim_size-1)*width*(1+overlap)
+    upper <- lower + width * (1+2*overlap)
+    return(list(lower=lower,upper=upper))
+  }, extrema, grid_size, widths)
 
-  x0 <- minx + seq(0,nx-1)*sizex*(1+overlap)
-  x1 <- x0 + sizex*(1+2*overlap)
-
-  y0 <- miny + seq(0,ny-1)*sizey*(1+overlap)
-  y1 <- y0 + sizey*(1+2*overlap)
-
-  level_sets <- list(x0=x0, x1=x1, y0=y0, y1=y1)
-  return(level_sets)
+  return(boundaries)
 }
 
-apply_level_sets <- function(filter, level_sets, outlier_cutoff = 0) {
-  nx <- length(level_sets$x0)
-  ny <- length(level_sets$y0)
+apply_level_sets <- function(filter, boundaries,
+                               outlier_cutoff=0, max_bin_size=nrow(filter)/10) {
+  grid_size <- vapply(boundaries, function(b) length(b$lower), integer(1))
+  bins_1D <- Map(function(dim, boundaries_dim) get_bins_1D(filter, dim, boundaries_dim),
+                 seq_along(grid_size), boundaries)
 
-  binsx <- lapply(seq(nx), function(i) which(filter[,1] >= level_sets$x0[i] &
-                                             filter[,1] <= level_sets$x1[i]))
-  binsy <- lapply(seq(ny), function(j) which(filter[,2] >= level_sets$y0[j] &
-                                             filter[,2] <= level_sets$y1[j]))
-  bins <- list()
-  for (i in seq(nx))
-    for (j in seq(ny)) {
-      binid <- j + (i-1)*ny
-      bins[[binid]] <- intersect(binsx[[i]], binsy[[j]])
-    }
+  bins <- Reduce(intersect_bins, bins_1D) %>%
+    lapply(split_bins, max_bin_size=max_bin_size) %>%
+    do.call(what=c)
 
-  counts <- sapply(bins, length)
+  counts <- vapply(bins, length, integer(1))
   bins <- bins[which(counts >= outlier_cutoff)]
-
   return(bins)
 }
 
+split_bins <- function(bin, max_bin_size) {
+  if (length(bin) < max_bin_size)
+    return(list(bin))
+
+  n <- ceiling(length(bin)/max_bin_size)
+  ind <- sample(seq_len(n), length(bin), replace=TRUE)
+
+  split_bin <- lapply(seq_len(n), function(i) bin[which(ind==i)])
+  return(split_bin)
+}
+
+get_bins_1D <- function(filter, dim, boundaries_dim) {
+  dim_size <- length(boundaries_dim$lower)
+  lapply(seq(dim_size), function(i) which(filter[,dim] >= boundaries_dim$lower[i] &
+                                          filter[,dim] <= boundaries_dim$upper[i]))
+}
+
+intersect_bins <- function(bins_1, bins_2) {
+  lapply(bins_1, function(bin_1) {
+    lapply(bins_2, function(bin_2) intersect(bin_1,bin_2))
+  }) %>% do.call(what=c)
+}
+
+
 
 cluster_level_sets <- function(data, bins, total_nodes, outlier_cutoff,
-                             verbose, npc, method="kmeans") {
+                             verbose, method="kmeans") {
   if (method == "kmeans")
     return(cluster_kmeans(data, bins, total_nodes, outlier_cutoff))
 
@@ -56,12 +70,13 @@ cluster_level_sets <- function(data, bins, total_nodes, outlier_cutoff,
 
 cluster_kmeans <- function(data, bins, total_nodes, outlier_cutoff) {
   all_k <- get_k(data, bins, outlier_cutoff, total_nodes)
-  nodes <- Map(function(bin, k) cluster_bin(bin, k, data, outlier_cutoff),
-               bins, all_k$binK) %>% do.call(what=c)
+  nodes <- Map(function(bin, k) cluster_bin_kmeans(bin, k, data, outlier_cutoff),
+               bins, all_k) %>% do.call(what=c)
   return(nodes)
 }
 
-cluster_bin <- function(bin, k, data, outlier_cutoff) {
+
+cluster_bin_kmeans <- function(bin, k, data, outlier_cutoff) {
   if(length(bin) < outlier_cutoff)
     return(list())
 
@@ -70,7 +85,7 @@ cluster_bin <- function(bin, k, data, outlier_cutoff) {
 
   km <- suppressWarnings(kmeans(data[bin,], centers=k, nstart = 10))
   new_nodes <- km$cluster %>%
-    nodes_from_mapping(bin = bin, k = k)
+    nodes_from_mapping(bin = bin, lev=seq_len(k))
   keep <- which(vapply(new_nodes, length, integer(1)) >= outlier_cutoff)
 
   return(new_nodes[keep])
@@ -83,10 +98,9 @@ get_k <- function(data, bins, outlier_cutoff, total_nodes,
   # bin size and bin variance
 
   binLength <- sapply(bins, length)
-  notOut <- which(binLength>= outlier_cutoff)
 
-  binLog <- pmax(log2(binLength/outlier_cutoff),0)
-  kLog <- binLog * total_nodes / sum(binLog[notOut])
+  binLog <- pmax(log2(binLength),0)
+  kSize <- binLog * total_nodes / sum(binLog)
 
   binSumSq <- sapply(bins, function(bin) {
     if (length(bin) < 2)
@@ -95,20 +109,18 @@ get_k <- function(data, bins, outlier_cutoff, total_nodes,
     return(sum(diag(v)))
   }) %>% sqrt()
 
-  kSumSq <- binSumSq * total_nodes / sum(binSumSq[notOut])
-  kSumSq <- pmin(kSumSq, floor(kLog))
+  kSumSq <- binSumSq * total_nodes / sum(binSumSq)
+  kSumSq <- pmin(kSumSq, floor(kSize))
   kSumSq <- kSumSq * total_nodes/sum(kSumSq)
 
-  binK <- ceiling(fracSumSq*kSumSq + (1-fracSumSq)*kLog)
-  binK <- pmin(binK, floor(binLength/outlier_cutoff))
-
-  allK <- cbind(binLength, binLog, kLog, kSumSq, binK)
-  return(data.frame(allK))
+  k <- ceiling(fracSumSq*kSumSq + (1-fracSumSq)*kSize)
+  k <- pmin(k, floor(binLength/outlier_cutoff))
+  return(k)
 }
 
 
-nodes_from_mapping <- function(mapping, bin, k) {
-  lapply(seq_len(k), function(i) bin[which(mapping==i)])
+nodes_from_mapping <- function(mapping, bin, lev) {
+  lapply(lev, function(i) bin[which(mapping==i)])
 }
 
 
@@ -123,6 +135,7 @@ get_graph <- function(nodes, node_stats, w, cutoff=0.01) {
   gr <- compute_weights(gr, node_stats$q50, w)
   return(gr)
 }
+
 
 get_inters <- function(nodes) {
   n <- length(nodes)
@@ -154,6 +167,7 @@ compute_weights <- function(gr, medians, w, decay=4) {
   new_weights <- exp(-decay*d_rest/mean(d_rest))
 
   E(gr)$weight <- new_weights
+
   return(gr)
 }
 

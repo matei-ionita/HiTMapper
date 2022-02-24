@@ -34,6 +34,7 @@ merge_communities <- function(modality) {
 
 get_modality <- function(marker) {
   diana <- cluster::diana(marker)
+  # diana <- cluster::agnes(marker)
   diana_cut <- cutree(as.hclust(diana), k=2)
 
   if (mean(marker[which(diana_cut==1)]) < mean(marker[which(diana_cut==2)])) {
@@ -119,6 +120,28 @@ scale_vec <- function(vec) {
   if (sum(vec) == 0)
     return(vec)
   return(vec/sum(vec))
+}
+
+
+make_unique_modality <- function(labels, modality) {
+  lab <- unique(labels)
+  unique_labels <- lapply(lab, function(label) {
+    sel <- which(labels==label)
+    if (length(sel)<=1)
+      return(label)
+
+    mod <- modality[sel,]
+    diff <- which(!apply(mod,2,function(col) all(col==col[1])))
+    mod <- mod[,diff,drop=FALSE]
+
+    to_append <- apply(mod, 1, function(row) {
+      paste(colnames(mod), unname(row), collapse=" ")
+    })
+
+    return(paste(label, to_append))
+  }) %>% do.call(what=c)
+
+  return(unique_labels)
 }
 
 

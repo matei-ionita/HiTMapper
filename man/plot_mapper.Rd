@@ -8,7 +8,8 @@ plot_mapper(
   mapper,
   markers = colnames(mapper$node_stats$q50),
   path = NULL,
-  device = "png"
+  device = "png",
+  remove_smaller = 0
 )
 }
 \arguments{
