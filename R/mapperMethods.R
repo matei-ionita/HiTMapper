@@ -1,5 +1,8 @@
+#' @useDynLib HiTMapper, .registration = TRUE
+#' @importFrom Rcpp evalCpp
 #' @import ggplot2
-#' @import magrittr
+#' @importFrom magrittr "%>%"
+#' @importFrom dplyr group_by summarise
 #' @import igraph
 #' @import ggraph
 #' @import leidenAlg
@@ -19,15 +22,16 @@ NULL
 #' @param scale Logical, whether to scale the data before PCA.
 #' @param verbose Logical, whether to output detailed info.
 #' @export
-HiTMapper <- function(data, total_nodes, outlier_cutoff=nrow(data)/1e4,
+HiTMapper <- function(data, total_nodes,
+                      method = "som", graph = "knn",
+                      outlier_cutoff=nrow(data)/1e4,
                       grid_size=c(10,10), overlap=0.15,
                       scale = FALSE, verbose=FALSE, filter=NULL,
-                      merge=TRUE, resolution=8,
-                      method="kmeans",
-                      w = rep(1, ncol(data))) {
+                      merge=TRUE, split = c(), resolution=2,
+                      k=8) {
 
-  if(!is.matrix(data) & !is.data.frame(data))
-    stop("Please enter your data in matrix or data.frame format.")
+  if(!is.matrix(data))
+    stop("Please enter your data in matrix format.")
 
   if (is.null(filter)) {
     message("Computing filter function...")
@@ -36,10 +40,11 @@ HiTMapper <- function(data, total_nodes, outlier_cutoff=nrow(data)/1e4,
   }
 
   message("Computing and clustering level sets...")
+  if (graph == "knn")
+    overlap <- 0
+
   level_sets <- get_level_sets(filter = filter, grid_size=grid_size, overlap=overlap)
   bins <- apply_level_sets(filter = filter, boundaries = level_sets)
-  # level_sets <- get_level_sets(filter = filter, nx=grid_size[1], ny=grid_size[2], overlap=overlap)
-  # bins <- apply_level_sets(filter = filter, level_sets = level_sets)
 
   nodes <- cluster_level_sets(data, bins, total_nodes=total_nodes,
                               outlier_cutoff=outlier_cutoff,
@@ -48,12 +53,19 @@ HiTMapper <- function(data, total_nodes, outlier_cutoff=nrow(data)/1e4,
   thresholds <- get_modality_thresholds(node_stats$q50)
 
   message("Constructing Mapper graph...")
-  gr <- get_graph(nodes, node_stats, w)
+
+  if (graph == "knn") {
+    gr <- get_graph_nn(node_stats$q50, k=k)
+  } else {
+    gr <- get_graph_c(nodes, node_stats)
+
+  }
+
   mapper <- list(nodes=nodes, gr=gr, node_stats=node_stats,
                  thresholds=thresholds)
 
   message("Detecting communities...")
-  mapper <- detect_communities(mapper, data, resolution, merge)
+  mapper <- detect_communities(mapper, data, resolution, merge, split)
 
   message(paste("Done! Graph has", length(nodes), "nodes,", length(E(gr)),
                 "edges,", length(levels(mapper$community)),"communities."))
@@ -75,8 +87,15 @@ HiTMapper <- function(data, total_nodes, outlier_cutoff=nrow(data)/1e4,
 #' modality across all markers in the data. It is recommended to use a
 #' large resolution to obtain many communities, some of which are then merged.
 #' @export
-detect_communities <- function(mapper, data, resolution=8, merge=TRUE) {
+detect_communities <- function(mapper, data, resolution=2, merge=TRUE,
+                               split = c(), min_split=0) {
   community <- leiden_clustering(mapper$gr, resolution)
+
+  for (split_marker in split) {
+    message(paste("Splitting", split_marker))
+    community <- split_communities(community, mapper, split_marker, min_split)
+  }
+
   community_medians <- get_community_medians(community, mapper$nodes, data)
 
   diff <- sweep(community_medians, 2, mapper$thresholds)

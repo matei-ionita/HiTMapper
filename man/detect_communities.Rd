@@ -4,7 +4,14 @@
 \alias{detect_communities}
 \title{detect_communities}
 \usage{
-detect_communities(mapper, data, resolution = 8, merge = TRUE)
+detect_communities(
+  mapper,
+  data,
+  resolution = 2,
+  merge = TRUE,
+  split = c(),
+  min_split = 0
+)
 }
 \arguments{
 \item{mapper}{Existing mapper object.}

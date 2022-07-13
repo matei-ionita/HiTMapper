@@ -58,9 +58,12 @@ intersect_bins <- function(bins_1, bins_2) {
 
 
 cluster_level_sets <- function(data, bins, total_nodes, outlier_cutoff,
-                             verbose, method="kmeans") {
+                             verbose, method) {
   if (method == "kmeans")
     return(cluster_kmeans(data, bins, total_nodes, outlier_cutoff))
+
+  if (method == "som")
+    return(cluster_som(data, bins, total_nodes, outlier_cutoff))
 
   # Enter more methods here?
 
@@ -71,6 +74,13 @@ cluster_level_sets <- function(data, bins, total_nodes, outlier_cutoff,
 cluster_kmeans <- function(data, bins, total_nodes, outlier_cutoff) {
   all_k <- get_k(data, bins, outlier_cutoff, total_nodes)
   nodes <- Map(function(bin, k) cluster_bin_kmeans(bin, k, data, outlier_cutoff),
+               bins, all_k) %>% do.call(what=c)
+  return(nodes)
+}
+
+cluster_som <- function(data, bins, total_nodes, outlier_cutoff) {
+  all_k <- get_k(data, bins, outlier_cutoff, total_nodes)
+  nodes <- Map(function(bin, k) cluster_bin_som(bin, k, data, outlier_cutoff),
                bins, all_k) %>% do.call(what=c)
   return(nodes)
 }
@@ -86,6 +96,24 @@ cluster_bin_kmeans <- function(bin, k, data, outlier_cutoff) {
   km <- suppressWarnings(kmeans(data[bin,], centers=k, nstart = 10))
   new_nodes <- km$cluster %>%
     nodes_from_mapping(bin = bin, lev=seq_len(k))
+  keep <- which(vapply(new_nodes, length, integer(1)) >= outlier_cutoff)
+
+  return(new_nodes[keep])
+}
+
+
+cluster_bin_som <- function(bin, k, data, outlier_cutoff) {
+  if(length(bin) < outlier_cutoff)
+    return(list())
+
+  if(k < 2)
+    return(list(bin))
+
+  nx <- floor(sqrt(k))
+  ny <- ceiling(sqrt(k))
+  som <- som_arma(data[bin,], nx, ny)
+  new_nodes <- som$mapping %>%
+    nodes_from_mapping(bin = bin, lev=seq_len(nx*ny))
   keep <- which(vapply(new_nodes, length, integer(1)) >= outlier_cutoff)
 
   return(new_nodes[keep])
@@ -124,7 +152,42 @@ nodes_from_mapping <- function(mapping, bin, lev) {
 }
 
 
-get_graph <- function(nodes, node_stats, w, cutoff=0.01) {
+get_graph_nn <- function (medians, k=10)
+{
+  d <- dist(medians) %>% as.matrix()
+  nn <- lapply(seq(nrow(medians)), function(i) {
+    setdiff(order(d[i,])[seq(k+1)], i)
+  })
+
+  jac <- lapply(nn, function(node) {
+    lapply(node, function(nbr) {
+      inter <- intersect(node, nn[[nbr]])
+      denom <- length(node) + length(nn[[nbr]]) - length(inter)
+      numer <- length(inter)
+      return(numer / denom)
+    }) %>% do.call(what=c)
+  })
+
+  gr <- graph_from_adj_list(nn)
+  E(gr)$weight <- do.call(what=c, args=jac)
+
+  return(gr)
+}
+
+
+get_graph_c <- function(nodes, node_stats, cutoff=0.01) {
+  inters_c <- intersections(nodes)
+  keep <- which(inters_c$iou / max(inters_c$iou) >= cutoff)
+  el <- cbind(inters_c$source[keep],inters_c$target[keep])
+  gr <- graph_from_edgelist(el, directed = FALSE)
+
+  gr <- compute_weights(gr, node_stats$q50)
+  return(gr)
+}
+
+
+
+get_graph <- function(nodes, node_stats, cutoff=0.01) {
   inters <- get_inters(nodes)
   inters <- inters/max(inters)
   inters[which(inters<cutoff)] <- 0
@@ -132,7 +195,7 @@ get_graph <- function(nodes, node_stats, w, cutoff=0.01) {
   gr <- graph_from_adjacency_matrix(inters,
                                     weighted = TRUE,
                                     mode="undirected")
-  gr <- compute_weights(gr, node_stats$q50, w)
+  gr <- compute_weights(gr, node_stats$q50)
   return(gr)
 }
 
@@ -144,8 +207,9 @@ get_inters <- function(nodes) {
   for (i in seq(1,n-1)) {
     for (j in seq(i+1,n)) {
       val <- iou(nodes[[i]], nodes[[j]])
+      # val <- length(intersect(nodes[[i]], nodes[[j]]))
       inters[i,j] <- val
-      inters[j,i] <- val
+      # inters[j,i] <- val
     }
   }
   return(inters)
@@ -157,8 +221,7 @@ iou <- function(node, neighbor) {
   return(length(int)/length(uni))
 }
 
-compute_weights <- function(gr, medians, w, decay=4) {
-  medians <- sweep(medians, MARGIN=2,STATS=w,FUN="*")
+compute_weights <- function(gr, medians, decay=4) {
   d <- dist(medians) %>% as.matrix()
 
   edges <- as_edgelist(gr) %>% data.frame()
@@ -172,10 +235,10 @@ compute_weights <- function(gr, medians, w, decay=4) {
 }
 
 get_stats <- function(data, nodes) {
-  q25 <- sapply(nodes, function(node) apply(data[node,], 2, function(x) quantile(x,0.25))) %>% t()
+  # q25 <- sapply(nodes, function(node) apply(data[node,], 2, function(x) quantile(x,0.25))) %>% t()
   q50 <- sapply(nodes, function(node) apply(data[node,], 2, median)) %>% t()
-  q75 <- sapply(nodes, function(node) apply(data[node,], 2, function(x) quantile(x,0.75))) %>% t()
-  return(list(q25=q25,q50=q50,q75=q75))
+  # q75 <- sapply(nodes, function(node) apply(data[node,], 2, function(x) quantile(x,0.75))) %>% t()
+  return(list(q50=q50))
 }
 
 

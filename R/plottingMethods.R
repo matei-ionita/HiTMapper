@@ -61,30 +61,30 @@ plot_mapper <- function(mapper, markers=colnames(mapper$node_stats$q50),
     }
   }
 
-  if (!is.null(mapper$community)) {
-    g <- ggraph(layout) +
-      geom_edge_link(aes(alpha = weight)) +
-      geom_node_point(aes(color=community, size=size)) +
-      scale_color_discrete(name="community") +
-      scale_edge_alpha(guide="none") +
-      scale_size(range=c(1,6), name="count") +
-      theme_graph(base_family = "sans") +
-      theme(text=element_text(size = 18))
-
-    if (is.null(path)) {
-      plot(g)
-    } else {
-      if (device == "png") {
-        png(paste0(path, "Community.png"), width=1200, height=1000)
-        plot(g)
-        dev.off()
-      } else {
-        pdf(paste0(path, "Community.pdf"), width=12, height=10)
-        plot(g)
-        dev.off()
-      }
-    }
-  }
+  # if (!is.null(mapper$community)) {
+  #   g <- ggraph(layout) +
+  #     geom_edge_link(aes(alpha = weight)) +
+  #     geom_node_point(aes(color=community, size=size)) +
+  #     scale_color_discrete(name="community") +
+  #     scale_edge_alpha(guide="none") +
+  #     scale_size(range=c(1,6), name="count") +
+  #     theme_graph(base_family = "sans") +
+  #     theme(text=element_text(size = 18))
+  #
+  #   if (is.null(path)) {
+  #     plot(g)
+  #   } else {
+  #     if (device == "png") {
+  #       png(paste0(path, "Community.png"), width=1200, height=1000)
+  #       plot(g)
+  #       dev.off()
+  #     } else {
+  #       pdf(paste0(path, "Community.pdf"), width=12, height=10)
+  #       plot(g)
+  #       dev.off()
+  #     }
+  #   }
+  # }
 }
 
 

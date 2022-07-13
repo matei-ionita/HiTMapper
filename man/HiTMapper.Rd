@@ -7,6 +7,8 @@
 HiTMapper(
   data,
   total_nodes,
+  method = "som",
+  graph = "knn",
   outlier_cutoff = nrow(data)/10000,
   grid_size = c(10, 10),
   overlap = 0.15,
@@ -14,9 +16,9 @@ HiTMapper(
   verbose = FALSE,
   filter = NULL,
   merge = TRUE,
-  resolution = 8,
-  method = "kmeans",
-  w = rep(1, ncol(data))
+  split = c(),
+  resolution = 2,
+  k = 8
 )
 }
 \arguments{

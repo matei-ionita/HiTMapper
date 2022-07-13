@@ -23,6 +23,32 @@ get_contingency_table <- function(mapping, samples) {
 }
 
 
+
+split_communities <- function(community, mapper, split_marker, min_split) {
+  lev <- levels(community)
+  n <- length(lev)
+  comm_new <- as.character(community)
+
+  for (level in lev) {
+    comm <- which(community==level)
+    thr <- mapper$thresholds[split_marker]
+    mod <- sign(mapper$node_stats$q50[comm,split_marker] - thr)
+
+    if (length(unique(mod)) > 1) {
+      l1 <- sapply(mapper$nodes[comm[which(mod==1)]], length) %>% sum()
+      l2 <- sapply(mapper$nodes[comm[which(mod!=1)]], length) %>% sum()
+      if (l1 > min_split & l2 > min_split) {
+        comm_new[comm[which(mod==1)]] <- n
+        n <- n+1
+      }
+    }
+  }
+
+  return(as.factor(comm_new))
+}
+
+
+
 merge_communities <- function(modality) {
   mod_collapse <- apply(modality,1, function(x) paste(x,collapse=""))
   vals <- unique(mod_collapse)
