@@ -9,11 +9,3 @@ som <- function(data, nx, ny, C = 10L, lr = 0.2) {
     .Call(`_HiTMapper_som`, data, nx, ny, C, lr)
 }
 
-som_arma <- function(data, nx, ny, C = 10L, lr = 0.2) {
-    .Call(`_HiTMapper_som_arma`, data, nx, ny, C, lr)
-}
-
-som_ptr <- function(data, nx, ny, C = 10L, lr = 0.2) {
-    .Call(`_HiTMapper_som_ptr`, data, nx, ny, C, lr)
-}
-

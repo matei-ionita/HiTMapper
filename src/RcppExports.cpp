@@ -23,12 +23,12 @@ BEGIN_RCPP
 END_RCPP
 }
 // som
-List som(NumericMatrix data, int nx, int ny, int C, double lr);
+List som(arma::mat& data, int nx, int ny, int C, double lr);
 RcppExport SEXP _HiTMapper_som(SEXP dataSEXP, SEXP nxSEXP, SEXP nySEXP, SEXP CSEXP, SEXP lrSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< NumericMatrix >::type data(dataSEXP);
+    Rcpp::traits::input_parameter< arma::mat& >::type data(dataSEXP);
     Rcpp::traits::input_parameter< int >::type nx(nxSEXP);
     Rcpp::traits::input_parameter< int >::type ny(nySEXP);
     Rcpp::traits::input_parameter< int >::type C(CSEXP);
@@ -37,42 +37,10 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
-// som_arma
-List som_arma(arma::mat& data, int nx, int ny, int C, double lr);
-RcppExport SEXP _HiTMapper_som_arma(SEXP dataSEXP, SEXP nxSEXP, SEXP nySEXP, SEXP CSEXP, SEXP lrSEXP) {
-BEGIN_RCPP
-    Rcpp::RObject rcpp_result_gen;
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< arma::mat& >::type data(dataSEXP);
-    Rcpp::traits::input_parameter< int >::type nx(nxSEXP);
-    Rcpp::traits::input_parameter< int >::type ny(nySEXP);
-    Rcpp::traits::input_parameter< int >::type C(CSEXP);
-    Rcpp::traits::input_parameter< double >::type lr(lrSEXP);
-    rcpp_result_gen = Rcpp::wrap(som_arma(data, nx, ny, C, lr));
-    return rcpp_result_gen;
-END_RCPP
-}
-// som_ptr
-List som_ptr(arma::mat& data, int nx, int ny, int C, double lr);
-RcppExport SEXP _HiTMapper_som_ptr(SEXP dataSEXP, SEXP nxSEXP, SEXP nySEXP, SEXP CSEXP, SEXP lrSEXP) {
-BEGIN_RCPP
-    Rcpp::RObject rcpp_result_gen;
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< arma::mat& >::type data(dataSEXP);
-    Rcpp::traits::input_parameter< int >::type nx(nxSEXP);
-    Rcpp::traits::input_parameter< int >::type ny(nySEXP);
-    Rcpp::traits::input_parameter< int >::type C(CSEXP);
-    Rcpp::traits::input_parameter< double >::type lr(lrSEXP);
-    rcpp_result_gen = Rcpp::wrap(som_ptr(data, nx, ny, C, lr));
-    return rcpp_result_gen;
-END_RCPP
-}
 
 static const R_CallMethodDef CallEntries[] = {
     {"_HiTMapper_intersections", (DL_FUNC) &_HiTMapper_intersections, 1},
     {"_HiTMapper_som", (DL_FUNC) &_HiTMapper_som, 5},
-    {"_HiTMapper_som_arma", (DL_FUNC) &_HiTMapper_som_arma, 5},
-    {"_HiTMapper_som_ptr", (DL_FUNC) &_HiTMapper_som_ptr, 5},
     {NULL, NULL, 0}
 };
 

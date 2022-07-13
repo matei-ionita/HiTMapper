@@ -111,7 +111,7 @@ cluster_bin_som <- function(bin, k, data, outlier_cutoff) {
 
   nx <- floor(sqrt(k))
   ny <- ceiling(sqrt(k))
-  som <- som_arma(data[bin,], nx, ny)
+  som <- som(data[bin,], nx, ny)
   new_nodes <- som$mapping %>%
     nodes_from_mapping(bin = bin, lev=seq_len(nx*ny))
   keep <- which(vapply(new_nodes, length, integer(1)) >= outlier_cutoff)
