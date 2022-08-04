@@ -169,7 +169,11 @@ get_graph_nn <- function (medians, k=10)
   })
 
   gr <- graph_from_adj_list(nn)
-  E(gr)$weight <- do.call(what=c, args=jac)
+  w <- do.call(what=c, args=jac)
+  ## most recent version of ggraph only works with
+  ## positive weights in FR algorithm
+  w[which(w==0)] <- 1e-5
+  E(gr)$weight <- w
 
   return(gr)
 }
