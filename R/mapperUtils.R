@@ -103,6 +103,10 @@ cluster_bin_kmeans <- function(bin, k, data, outlier_cutoff) {
 
 
 cluster_bin_som <- function(bin, k, data, outlier_cutoff, n_passes) {
+  
+  if(length(bin) < 5)
+    return(list())
+
   if(length(bin) < outlier_cutoff)
     return(list(bin))
 
@@ -114,9 +118,9 @@ cluster_bin_som <- function(bin, k, data, outlier_cutoff, n_passes) {
   som <- som(data[bin,], nx, ny, n_passes)
   new_nodes <- som$mapping %>%
     nodes_from_mapping(bin = bin, lev=seq_len(nx*ny))
-  # keep <- which(vapply(new_nodes, length, integer(1)) >= outlier_cutoff)
+  keep <- which(vapply(new_nodes, length, integer(1)) >= 5)
 
-  return(new_nodes)
+  return(new_nodes[keep])
 }
 
 
