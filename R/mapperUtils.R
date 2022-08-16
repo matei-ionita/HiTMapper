@@ -58,12 +58,12 @@ intersect_bins <- function(bins_1, bins_2) {
 
 
 cluster_level_sets <- function(data, bins, total_nodes, outlier_cutoff,
-                             verbose, method) {
+                               n_passes, verbose, method) {
   if (method == "kmeans")
     return(cluster_kmeans(data, bins, total_nodes, outlier_cutoff))
 
   if (method == "som")
-    return(cluster_som(data, bins, total_nodes, outlier_cutoff))
+    return(cluster_som(data, bins, total_nodes, outlier_cutoff, n_passes))
 
   # Enter more methods here?
 
@@ -78,9 +78,9 @@ cluster_kmeans <- function(data, bins, total_nodes, outlier_cutoff) {
   return(nodes)
 }
 
-cluster_som <- function(data, bins, total_nodes, outlier_cutoff) {
+cluster_som <- function(data, bins, total_nodes, outlier_cutoff, n_passes) {
   all_k <- get_k(data, bins, outlier_cutoff, total_nodes)
-  nodes <- Map(function(bin, k) cluster_bin_som(bin, k, data, outlier_cutoff),
+  nodes <- Map(function(bin, k) cluster_bin_som(bin, k, data, outlier_cutoff, n_passes),
                bins, all_k) %>% do.call(what=c)
   return(nodes)
 }
@@ -102,21 +102,21 @@ cluster_bin_kmeans <- function(bin, k, data, outlier_cutoff) {
 }
 
 
-cluster_bin_som <- function(bin, k, data, outlier_cutoff) {
+cluster_bin_som <- function(bin, k, data, outlier_cutoff, n_passes) {
   if(length(bin) < outlier_cutoff)
-    return(list())
+    return(list(bin))
 
   if(k < 2)
     return(list(bin))
 
   nx <- floor(sqrt(k))
   ny <- ceiling(sqrt(k))
-  som <- som(data[bin,], nx, ny)
+  som <- som(data[bin,], nx, ny, n_passes)
   new_nodes <- som$mapping %>%
     nodes_from_mapping(bin = bin, lev=seq_len(nx*ny))
-  keep <- which(vapply(new_nodes, length, integer(1)) >= outlier_cutoff)
+  # keep <- which(vapply(new_nodes, length, integer(1)) >= outlier_cutoff)
 
-  return(new_nodes[keep])
+  return(new_nodes)
 }
 
 

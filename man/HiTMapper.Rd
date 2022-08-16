@@ -12,6 +12,7 @@ HiTMapper(
   outlier_cutoff = nrow(data)/10000,
   grid_size = c(10, 10),
   overlap = 0.15,
+  n_passes = 10,
   scale = FALSE,
   verbose = FALSE,
   filter = NULL,

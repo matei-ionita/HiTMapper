@@ -26,6 +26,7 @@ HiTMapper <- function(data, total_nodes,
                       method = "som", graph = "knn",
                       outlier_cutoff=nrow(data)/1e4,
                       grid_size=c(10,10), overlap=0.15,
+                      n_passes=10,
                       scale = FALSE, verbose=FALSE, filter=NULL,
                       merge=TRUE, split = c(), resolution=2,
                       k=8) {
@@ -48,6 +49,7 @@ HiTMapper <- function(data, total_nodes,
 
   nodes <- cluster_level_sets(data, bins, total_nodes=total_nodes,
                               outlier_cutoff=outlier_cutoff,
+                              n_passes=n_passes,
                               verbose=verbose,method=method)
   node_stats <- get_stats(data, nodes)
   thresholds <- get_modality_thresholds(node_stats$q50)
