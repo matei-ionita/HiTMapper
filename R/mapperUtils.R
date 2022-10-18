@@ -18,7 +18,7 @@ get_level_sets <- function(filter, grid_size=c(10,10), overlap = 0.1) {
 }
 
 apply_level_sets <- function(filter, boundaries,
-                               outlier_cutoff=0, max_bin_size=nrow(filter)/10) {
+                               min_node_size=0, max_bin_size=nrow(filter)/10) {
   grid_size <- vapply(boundaries, function(b) length(b$lower), integer(1))
   bins_1D <- Map(function(dim, boundaries_dim) get_bins_1D(filter, dim, boundaries_dim),
                  seq_along(grid_size), boundaries)
@@ -28,7 +28,7 @@ apply_level_sets <- function(filter, boundaries,
     do.call(what=c)
 
   counts <- vapply(bins, length, integer(1))
-  bins <- bins[which(counts >= outlier_cutoff)]
+  bins <- bins[which(counts >= min_node_size)]
   return(bins)
 }
 
@@ -56,38 +56,35 @@ intersect_bins <- function(bins_1, bins_2) {
 }
 
 
-
-cluster_level_sets <- function(data, bins, total_nodes, outlier_cutoff,
+cluster_level_sets <- function(data, bins, total_nodes, min_node_size,
                                n_passes, verbose, method) {
   if (method == "kmeans")
-    return(cluster_kmeans(data, bins, total_nodes, outlier_cutoff))
+    return(cluster_kmeans(data, bins, total_nodes, min_node_size))
 
   if (method == "som")
-    return(cluster_som(data, bins, total_nodes, outlier_cutoff, n_passes))
-
-  # Enter more methods here?
+    return(cluster_som(data, bins, total_nodes, min_node_size, n_passes))
 
   stop("Invalid method chosen.")
 }
 
 
-cluster_kmeans <- function(data, bins, total_nodes, outlier_cutoff) {
-  all_k <- get_k(data, bins, outlier_cutoff, total_nodes)
-  nodes <- Map(function(bin, k) cluster_bin_kmeans(bin, k, data, outlier_cutoff),
+cluster_kmeans <- function(data, bins, total_nodes, min_node_size) {
+  all_k <- get_k(data, bins, min_node_size, total_nodes)
+  nodes <- Map(function(bin, k) cluster_bin_kmeans(bin, k, data, min_node_size),
                bins, all_k) %>% do.call(what=c)
   return(nodes)
 }
 
-cluster_som <- function(data, bins, total_nodes, outlier_cutoff, n_passes) {
-  all_k <- get_k(data, bins, outlier_cutoff, total_nodes)
-  nodes <- Map(function(bin, k) cluster_bin_som(bin, k, data, outlier_cutoff, n_passes),
+cluster_som <- function(data, bins, total_nodes, min_node_size, n_passes) {
+  all_k <- get_k(data, bins, min_node_size, total_nodes)
+  nodes <- Map(function(bin, k) cluster_bin_som(bin, k, data, min_node_size, n_passes),
                bins, all_k) %>% do.call(what=c)
   return(nodes)
 }
 
 
-cluster_bin_kmeans <- function(bin, k, data, outlier_cutoff) {
-  if(length(bin) < outlier_cutoff)
+cluster_bin_kmeans <- function(bin, k, data, min_node_size) {
+  if(length(bin) < min_node_size)
     return(list())
 
   if(k < 2)
@@ -96,18 +93,18 @@ cluster_bin_kmeans <- function(bin, k, data, outlier_cutoff) {
   km <- suppressWarnings(kmeans(data[bin,], centers=k, nstart = 10))
   new_nodes <- km$cluster %>%
     nodes_from_mapping(bin = bin, lev=seq_len(k))
-  keep <- which(vapply(new_nodes, length, integer(1)) >= outlier_cutoff)
+  keep <- which(vapply(new_nodes, length, integer(1)) >= min_node_size)
 
   return(new_nodes[keep])
 }
 
 
-cluster_bin_som <- function(bin, k, data, outlier_cutoff, n_passes) {
+cluster_bin_som <- function(bin, k, data, min_node_size, n_passes) {
   
   if(length(bin) < 5)
     return(list())
 
-  if(length(bin) < outlier_cutoff)
+  if(length(bin) < min_node_size)
     return(list(bin))
 
   if(k < 2)
@@ -124,30 +121,44 @@ cluster_bin_som <- function(bin, k, data, outlier_cutoff, n_passes) {
 }
 
 
-get_k <- function(data, bins, outlier_cutoff, total_nodes,
-                 fracSumSq = 0.75) {
+get_k <- function(data, bins, min_node_size, total_nodes,
+                         frac_sum_sq = 0.75) {
   # Allocate nodes to bins, based on a combination of
   # bin size and bin variance
-
-  binLength <- sapply(bins, length)
-
-  binLog <- pmax(log2(binLength),0)
-  kSize <- binLog * total_nodes / sum(binLog)
-
-  binSumSq <- sapply(bins, function(bin) {
+  
+  bin_length <- sapply(bins, length)
+  bin_log_size <- pmax(log2(bin_length),0)
+  weight_size <- bin_log_size / sum(bin_log_size)
+  
+  bin_sum_sq <- sapply(bins, function(bin) {
     if (length(bin) < 2)
       return(0)
     v <- var(data[bin,])
     return(sum(diag(v)))
   }) %>% sqrt()
-
-  kSumSq <- binSumSq * total_nodes / sum(binSumSq)
-  kSumSq <- pmin(kSumSq, floor(kSize))
-  kSumSq <- kSumSq * total_nodes/sum(kSumSq)
-
-  k <- ceiling(fracSumSq*kSumSq + (1-fracSumSq)*kSize)
-  k <- pmin(k, floor(binLength/outlier_cutoff))
+  weight_sum_sq <- bin_sum_sq / sum(bin_sum_sq)
+  
+  weight <- frac_sum_sq*weight_sum_sq + (1-frac_sum_sq)*weight_size
+  max_k_bin <- ceiling(bin_length/min_node_size)
+  
+  k <- allocate_with_constraints(total_nodes, max_k_bin, weight, 
+                                 alloc=rep(0, length(bins)))
   return(k)
+}
+
+allocate_with_constraints <- function(total_nodes, max_k_bin, weight, alloc,
+                                      depth=1) {
+  if (sum(alloc)>=total_nodes | depth > 10)
+    return(round(alloc))
+  
+  to_alloc <- total_nodes - sum(alloc)
+  not_at_max <- which(alloc!=max_k_bin)
+  renorm <- sum(weight[not_at_max])
+  
+  alloc_new <- pmin(weight*to_alloc/renorm, max_k_bin-alloc)
+
+  return(allocate_with_constraints(total_nodes, max_k_bin, weight, 
+                                   alloc+alloc_new, depth=depth+1))
 }
 
 
@@ -156,7 +167,7 @@ nodes_from_mapping <- function(mapping, bin, lev) {
 }
 
 
-get_graph_nn <- function (medians, k=10)
+get_graph_nn <- function (medians, k, thresholds, force_sep)
 {
   d <- dist(medians) %>% as.matrix()
   nn <- lapply(seq(nrow(medians)), function(i) {
@@ -171,7 +182,10 @@ get_graph_nn <- function (medians, k=10)
       return(numer / denom)
     }) %>% do.call(what=c)
   })
-
+  
+  jac <- force_smaller_weights_on_thresholds(jac, nn, medians, k,
+                                             thresholds, force_sep)
+  
   gr <- graph_from_adj_list(nn)
   w <- do.call(what=c, args=jac)
   ## most recent version of ggraph only works with
@@ -182,91 +196,49 @@ get_graph_nn <- function (medians, k=10)
   return(gr)
 }
 
-
-get_graph_c <- function(nodes, node_stats, cutoff=0.01) {
-  inters_c <- intersections(nodes)
-  keep <- which(inters_c$iou / max(inters_c$iou) >= cutoff)
-  el <- cbind(inters_c$source[keep],inters_c$target[keep])
-  gr <- graph_from_edgelist(el, directed = FALSE)
-
-  gr <- compute_weights(gr, node_stats$q50)
-  return(gr)
-}
-
-
-
-get_graph <- function(nodes, node_stats, cutoff=0.01) {
-  inters <- get_inters(nodes)
-  inters <- inters/max(inters)
-  inters[which(inters<cutoff)] <- 0
-
-  gr <- graph_from_adjacency_matrix(inters,
-                                    weighted = TRUE,
-                                    mode="undirected")
-  gr <- compute_weights(gr, node_stats$q50)
-  return(gr)
-}
-
-
-get_inters <- function(nodes) {
-  n <- length(nodes)
-  inters <- matrix(0, nrow=n, ncol=n)
-
-  for (i in seq(1,n-1)) {
-    for (j in seq(i+1,n)) {
-      val <- iou(nodes[[i]], nodes[[j]])
-      # val <- length(intersect(nodes[[i]], nodes[[j]]))
-      inters[i,j] <- val
-      # inters[j,i] <- val
+force_smaller_weights_on_thresholds <- function(jac, nn, medians, k,
+                                                thresholds, force_sep) {
+  for (i in seq_along(nn)) {
+    for (j in seq(k)) {
+      nbr <- nn[[i]][j]
+      flag <- FALSE
+      for (marker in force_sep) {
+        if ( (medians[i,marker] - thresholds[marker]) *
+             (medians[nbr,marker] - thresholds[marker]) < 0) {
+          flag <- TRUE
+        }
+      }
+      if (flag) {
+        jac[[i]][j] <- jac[[i]][j]/10
+      }
     }
   }
-  return(inters)
-}
-
-iou <- function(node, neighbor) {
-  int <- intersect(node,neighbor)
-  uni <- union(node,neighbor)
-  return(length(int)/length(uni))
-}
-
-compute_weights <- function(gr, medians, decay=4) {
-  d <- dist(medians) %>% as.matrix()
-
-  edges <- as_edgelist(gr) %>% data.frame()
-  names(edges) <- c("s", "t")
-  d_rest <- d[as.matrix(edges[,c("s","t")])]
-  new_weights <- exp(-decay*d_rest/mean(d_rest))
-
-  E(gr)$weight <- new_weights
-
-  return(gr)
+  
+  return(jac)
 }
 
 get_stats <- function(data, nodes) {
-  # q25 <- sapply(nodes, function(node) apply(data[node,], 2, function(x) quantile(x,0.25))) %>% t()
   q50 <- sapply(nodes, function(node) apply(data[node,], 2, median)) %>% t()
-  # q75 <- sapply(nodes, function(node) apply(data[node,], 2, function(x) quantile(x,0.75))) %>% t()
   return(list(q50=q50))
 }
 
 
-plot_filter <- function(data, filter, path="") {
-  sel <- sample(nrow(data), min(1e5, nrow(data)))
-  df <- cbind(filter[sel,], data[sel,])
-
-  for(param in colnames(data)) {
-    message(param)
-    g <- ggplot(df, aes(x=Comp.1, y=Comp.2)) +
-      geom_point(aes_(color=as.name(param))) +
-      scale_color_gradient(low = "black", high = "orange", name = param) +
-      theme_bw()
-
-    path_full <- paste0(path, "/", param, ".png")
-    png(path_full, width=1200, height=900)
-    plot(g)
-    dev.off()
+get_filter <- function(data, rank=2, scale=FALSE) {
+  if(!is.matrix(data) & !is.data.frame(data))
+    stop("Please enter your data in matrix or data.frame format.")
+  
+  if (scale) {
+    cov <- cor(data)
+  } else {
+    cov <- cov(data)
   }
+  pr <- princomp(covmat=cov, scores=FALSE)
+  pr$center <- apply(data, 2, mean)
+  filter <- apply_PCA(data, pr, rank)
+  
+  return(filter)
 }
+
 
 apply_PCA <- function(data, pr, rank=2) {
   if(is.matrix(data)) {

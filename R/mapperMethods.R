@@ -2,9 +2,12 @@
 #' @importFrom Rcpp evalCpp
 #' @import ggplot2
 #' @importFrom magrittr "%>%"
-#' @importFrom dplyr group_by summarise
+#' @importFrom dplyr group_by summarise filter mutate
 #' @import igraph
 #' @import ggraph
+#' @importFrom mclust Mclust mclustBIC
+#' @importFrom glmnet glmnet
+#' @importFrom KernSmooth bkde
 #' @import leidenAlg
 NULL
 
@@ -14,22 +17,34 @@ NULL
 #' @param data A data matrix or data frame, with observations
 #' along rows and variables along columns.
 #' @param total_nodes Approximate number of nodes for the Mapper graph.
-#' @param outlier_cutoff Discard nodes containing fewer cells than this.
+#' @param method Clustering method to use for each bin. Currently implemented
+#' options are "som" (recommended) or "kmeans".
+#' @param min_node_size Minimum number of cells in a node. No need to change
+#' the default, unless there are very few total cells.
 #' @param grid_size A vector of integers, specifying the number of
 #' overlapping bins along each principal component. Its length determines
 #' the number of principal components used.
 #' @param overlap Fraction of overlap between neighboring bins.
+#' @param n_passes Number of passes over all data points when allocating
+#' cells to nodes via the "som" method.
 #' @param scale Logical, whether to scale the data before PCA.
-#' @param verbose Logical, whether to output detailed info.
+#' @param filter A matrix with few columns and same number of rows as data.
+#' To be used as filter, instead of the default principal components.
+#' @param resolution Used in community detection. Larger values lead to more
+#' communities.
+#' @param k Number of nearest neighbors to use when constructing graph.
+#' @param force_sep Character vector, must be a subset of colnames(data).
+#' Weakens graph edges between nodes that have different modality for any
+#' of the given markers. This is a kludge and should be used sparingly.
 #' @export
 HiTMapper <- function(data, total_nodes,
-                      method = "som", graph = "knn",
-                      outlier_cutoff=nrow(data)/1e4,
-                      grid_size=c(10,10), overlap=0.15,
+                      method = "som",
+                      min_node_size=50,
+                      grid_size=c(10,10), overlap=0,
                       n_passes=10,
-                      scale = FALSE, verbose=FALSE, filter=NULL,
-                      merge=TRUE, split = c(), resolution=2,
-                      k=8) {
+                      scale = FALSE, filter=NULL,
+                      resolution=8, defs=NULL,
+                      k=8, force_sep=c()) {
 
   if(!is.matrix(data))
     stop("Please enter your data in matrix format.")
@@ -41,33 +56,23 @@ HiTMapper <- function(data, total_nodes,
   }
 
   message("Computing and clustering level sets...")
-  if (graph == "knn")
-    overlap <- 0
-
   level_sets <- get_level_sets(filter = filter, grid_size=grid_size, overlap=overlap)
   bins <- apply_level_sets(filter = filter, boundaries = level_sets)
 
   nodes <- cluster_level_sets(data, bins, total_nodes=total_nodes,
-                              outlier_cutoff=outlier_cutoff,
+                              min_node_size=min_node_size,
                               n_passes=n_passes,
                               verbose=verbose,method=method)
   node_stats <- get_stats(data, nodes)
-  thresholds <- get_modality_thresholds(node_stats$q50)
+  thresholds <- get_modality_thresholds_gmm(data, nodes)
 
-  message("Constructing Mapper graph...")
-
-  if (graph == "knn") {
-    gr <- get_graph_nn(node_stats$q50, k=k)
-  } else {
-    gr <- get_graph_c(nodes, node_stats)
-
-  }
-
+  message("Constructing graph...")
+  gr <- get_graph_nn(node_stats$q50, k=k, thresholds, force_sep)
   mapper <- list(nodes=nodes, gr=gr, node_stats=node_stats,
                  thresholds=thresholds)
 
   message("Detecting communities...")
-  mapper <- detect_communities(mapper, data, resolution, merge, split)
+  mapper <- detect_communities(mapper, data, resolution, defs)
 
   message(paste("Done! Graph has", length(nodes), "nodes,", length(E(gr)),
                 "edges,", length(levels(mapper$community)),"communities."))
@@ -85,38 +90,31 @@ HiTMapper <- function(data, total_nodes,
 #' @param mapper Existing mapper object.
 #' @param resolution passed to the Leiden algorithm, controls
 #' the number of communities. Increase for more, decrease for fewer.
-#' @param merge Logical, whether to merge communities which have the same
-#' modality across all markers in the data. It is recommended to use a
-#' large resolution to obtain many communities, some of which are then merged.
+#' @param defs A data frame of cell population definitions.
 #' @export
-detect_communities <- function(mapper, data, resolution=2, merge=TRUE,
-                               split = c(), min_split=0) {
+detect_communities <- function(mapper, data, resolution=8, defs=NULL) {
   community <- leiden_clustering(mapper$gr, resolution)
-
-  for (split_marker in split) {
-    message(paste("Splitting", split_marker))
-    community <- split_communities(community, mapper, split_marker, min_split)
-  }
-
   community_medians <- get_community_medians(community, mapper$nodes, data)
 
   diff <- sweep(community_medians, 2, mapper$thresholds)
   modality <- diff
   modality[which(diff<=0)] <- "lo"
   modality[which(diff>0)] <- "hi"
-
-  if (merge) {
-    group_index <- merge_communities(modality)
-    community <- group_index[community] %>% as.factor()
-    community_medians <- get_community_medians(community, mapper$nodes, data)
-
-    dup <- duplicated(group_index)
-    modality <- modality[which(!dup),]
-  }
-
+  
   mapper$community <- community
   mapper$community_medians <- community_medians
   mapper$modality <- modality
+  mapper$clustering <- assign_cells(data, mapper, community)
+  
+  if (!is.null(defs)) {
+    mapper <- label_communities(mapper, defs)
+    
+    mapper <- distinguish_communities(mapper, data)
+    mapper$community_medians <- get_community_medians(mapper$community, 
+                                                      mapper$nodes, data)
+    row.names(mapper$community_medians) <- levels(mapper$community)
+  }
+  
   return(mapper)
 }
 
@@ -131,7 +129,6 @@ detect_communities <- function(mapper, data, resolution=2, merge=TRUE,
 #' @param mapper Existing mapper object.
 #' @export
 extract_features <- function(data, sample_mapping, mapper) {
-  mapper$clustering <- assign_cells(data, mapper, mapper$community)
   mapper$features <- get_contingency_table(mapper$clustering,
                                            sample_mapping)
   mapper$node_composition <- node_composition(mapper, sample_mapping)
@@ -154,7 +151,6 @@ label_communities <- function(mapper, defs, additional=list()) {
   labels <- phenos[matches]
   labels <- append_additional(additional, mapper$modality, labels, matches)
   labels <- make.unique(labels)
-  # labels <- make_unique_modality(labels, mapper$modality)
 
   levels(mapper$community) <- labels
   row.names(mapper$community_medians) <- labels
@@ -165,36 +161,4 @@ label_communities <- function(mapper, defs, additional=list()) {
 
   return(mapper)
 }
-
-
-#' @title getFilter
-#' @description Get the filter function (PCA projection) used by HiTMapper.
-#' @param data A data matrix or data frame, with observations
-#' along rows and variables along columns.
-#' @param scale Logical, whether to scale the data before PCA.
-#' @param plot_path Generate plots of the filter color-coded by
-#' each of the variables in the data matrix and save them at this path.
-#' No plots generated unless path is provided.
-#' @export
-get_filter <- function(data, rank=2, scale=FALSE, plot_path=NULL) {
-  if(!is.matrix(data) & !is.data.frame(data))
-    stop("Please enter your data in matrix or data.frame format.")
-
-  if (scale) {
-    cov <- cor(data)
-  } else {
-    cov <- cov(data)
-  }
-  pr <- princomp(covmat=cov, scores=FALSE)
-  pr$center <- apply(data, 2, mean)
-  filter <- apply_PCA(data, pr, rank)
-
-  # To do: show the overlapping bins on the PCA plot,
-  # to help visualize what Mapper is doing
-  if(!is.null(plot_path))
-    plotFilter(data,filter,plot_path)
-
-  return(filter)
-}
-
 

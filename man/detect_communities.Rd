@@ -4,14 +4,7 @@
 \alias{detect_communities}
 \title{detect_communities}
 \usage{
-detect_communities(
-  mapper,
-  data,
-  resolution = 2,
-  merge = TRUE,
-  split = c(),
-  min_split = 0
-)
+detect_communities(mapper, data, resolution = 8, defs = NULL)
 }
 \arguments{
 \item{mapper}{Existing mapper object.}
@@ -22,9 +15,7 @@ along rows and variables along columns.}
 \item{resolution}{passed to the Leiden algorithm, controls
 the number of communities. Increase for more, decrease for fewer.}
 
-\item{merge}{Logical, whether to merge communities which have the same
-modality across all markers in the data. It is recommended to use a
-large resolution to obtain many communities, some of which are then merged.}
+\item{defs}{A data frame of cell population definitions.}
 }
 \description{
 Use Leiden algorithm to identify communities in the

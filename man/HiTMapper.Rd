@@ -8,18 +8,16 @@ HiTMapper(
   data,
   total_nodes,
   method = "som",
-  graph = "knn",
-  outlier_cutoff = nrow(data)/10000,
+  min_node_size = 50,
   grid_size = c(10, 10),
-  overlap = 0.15,
+  overlap = 0,
   n_passes = 10,
   scale = FALSE,
-  verbose = FALSE,
   filter = NULL,
-  merge = TRUE,
-  split = c(),
-  resolution = 2,
-  k = 8
+  resolution = 8,
+  defs = NULL,
+  k = 8,
+  force_sep = c()
 )
 }
 \arguments{
@@ -28,7 +26,11 @@ along rows and variables along columns.}
 
 \item{total_nodes}{Approximate number of nodes for the Mapper graph.}
 
-\item{outlier_cutoff}{Discard nodes containing fewer cells than this.}
+\item{method}{Clustering method to use for each bin. Currently implemented
+options are "som" (recommended) or "kmeans".}
+
+\item{min_node_size}{Minimum number of cells in a node. No need to change
+the default, unless there are very few total cells.}
 
 \item{grid_size}{A vector of integers, specifying the number of
 overlapping bins along each principal component. Its length determines
@@ -36,9 +38,22 @@ the number of principal components used.}
 
 \item{overlap}{Fraction of overlap between neighboring bins.}
 
+\item{n_passes}{Number of passes over all data points when allocating
+cells to nodes via the "som" method.}
+
 \item{scale}{Logical, whether to scale the data before PCA.}
 
-\item{verbose}{Logical, whether to output detailed info.}
+\item{filter}{A matrix with few columns and same number of rows as data.
+To be used as filter, instead of the default principal components.}
+
+\item{resolution}{Used in community detection. Larger values lead to more
+communities.}
+
+\item{k}{Number of nearest neighbors to use when constructing graph.}
+
+\item{force_sep}{Character vector, must be a subset of colnames(data).
+Weakens graph edges between nodes that have different modality for any
+of the given markers. This is a kludge and should be used sparingly.}
 }
 \description{
 Wrapper for the core Mapper functionality.
