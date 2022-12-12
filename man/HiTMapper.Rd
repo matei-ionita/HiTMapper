@@ -6,18 +6,12 @@
 \usage{
 HiTMapper(
   data,
-  total_nodes,
-  method = "som",
-  min_node_size = 50,
-  grid_size = c(10, 10),
-  overlap = 0,
-  n_passes = 10,
-  scale = FALSE,
-  filter = NULL,
-  resolution = 8,
+  total_nodes = 1000,
+  resolution = 1,
   defs = NULL,
-  k = 8,
-  force_sep = c()
+  grid_size = c(10, 10),
+  min_node_size = 50,
+  n_passes = 10
 )
 }
 \arguments{
@@ -26,34 +20,20 @@ along rows and variables along columns.}
 
 \item{total_nodes}{Approximate number of nodes for the Mapper graph.}
 
-\item{method}{Clustering method to use for each bin. Currently implemented
-options are "som" (recommended) or "kmeans".}
-
-\item{min_node_size}{Minimum number of cells in a node. No need to change
-the default, unless there are very few total cells.}
-
-\item{grid_size}{A vector of integers, specifying the number of
-overlapping bins along each principal component. Its length determines
-the number of principal components used.}
-
-\item{overlap}{Fraction of overlap between neighboring bins.}
-
-\item{n_passes}{Number of passes over all data points when allocating
-cells to nodes via the "som" method.}
-
-\item{scale}{Logical, whether to scale the data before PCA.}
-
-\item{filter}{A matrix with few columns and same number of rows as data.
-To be used as filter, instead of the default principal components.}
-
 \item{resolution}{Used in community detection. Larger values lead to more
-communities.}
+communities. We recommend running HiTMapper with default resolution,
+and later customizing if necessary using the detect_communities function,
+at very little computational cost.}
 
-\item{k}{Number of nearest neighbors to use when constructing graph.}
+\item{defs}{A data frame of cell population definitions, to be used for
+labeling communities.}
 
-\item{force_sep}{Character vector, must be a subset of colnames(data).
-Weakens graph edges between nodes that have different modality for any
-of the given markers. This is a kludge and should be used sparingly.}
+\item{grid_size}{Array of integers, the number of bins along 
+each principal component.}
+
+\item{min_node_size}{Minimum number of cells in a node.}
+
+\item{n_passes}{Number of passes over all data points when clustering.}
 }
 \description{
 Wrapper for the core Mapper functionality.

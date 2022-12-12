@@ -2,13 +2,12 @@
 #' @importFrom Rcpp evalCpp
 #' @import ggplot2
 #' @importFrom magrittr "%>%"
-#' @importFrom dplyr group_by summarise filter mutate
+#' @importFrom dplyr group_by summarise filter select mutate if_else pull
+#' @importFrom stringr str_split fixed
+#' @importFrom tibble tibble as_tibble
 #' @import igraph
 #' @import ggraph
-#' @importFrom mclust Mclust mclustBIC
-#' @importFrom glmnet glmnet
-#' @importFrom KernSmooth bkde
-#' @import leidenAlg
+#' @importFrom leidenAlg leiden.community
 NULL
 
 
@@ -17,122 +16,74 @@ NULL
 #' @param data A data matrix or data frame, with observations
 #' along rows and variables along columns.
 #' @param total_nodes Approximate number of nodes for the Mapper graph.
-#' @param method Clustering method to use for each bin. Currently implemented
-#' options are "som" (recommended) or "kmeans".
-#' @param min_node_size Minimum number of cells in a node. No need to change
-#' the default, unless there are very few total cells.
-#' @param grid_size A vector of integers, specifying the number of
-#' overlapping bins along each principal component. Its length determines
-#' the number of principal components used.
-#' @param overlap Fraction of overlap between neighboring bins.
-#' @param n_passes Number of passes over all data points when allocating
-#' cells to nodes via the "som" method.
-#' @param scale Logical, whether to scale the data before PCA.
-#' @param filter A matrix with few columns and same number of rows as data.
-#' To be used as filter, instead of the default principal components.
 #' @param resolution Used in community detection. Larger values lead to more
-#' communities.
-#' @param k Number of nearest neighbors to use when constructing graph.
-#' @param force_sep Character vector, must be a subset of colnames(data).
-#' Weakens graph edges between nodes that have different modality for any
-#' of the given markers. This is a kludge and should be used sparingly.
+#' communities. We recommend running HiTMapper with default resolution,
+#' and later customizing if necessary using the detect_communities function,
+#' at very little computational cost.
+#' @param defs A data frame of cell population definitions, to be used for
+#' labeling communities.
+#' @param grid_size Array of integers, the number of bins along 
+#' each principal component.
+#' @param min_node_size Minimum number of cells in a node.
+#' @param n_passes Number of passes over all data points when clustering.
 #' @export
-HiTMapper <- function(data, total_nodes,
-                      method = "som",
-                      min_node_size=50,
-                      grid_size=c(10,10), overlap=0,
-                      n_passes=10,
-                      scale = FALSE, filter=NULL,
-                      resolution=8, defs=NULL,
-                      k=8, force_sep=c()) {
+HiTMapper <- function(data, total_nodes=1000,
+                      resolution=1, defs=NULL,
+                      grid_size=c(10,10),
+                      min_node_size=50, n_passes=10) {
 
   if(!is.matrix(data))
     stop("Please enter your data in matrix format.")
 
-  if (is.null(filter)) {
-    message("Computing filter function...")
-    rank <- length(grid_size)
-    filter <- get_filter(data, rank, scale)
-  }
-
-  message("Computing and clustering level sets...")
-  level_sets <- get_level_sets(filter = filter, grid_size=grid_size, overlap=overlap)
-  bins <- apply_level_sets(filter = filter, boundaries = level_sets)
-
-  nodes <- cluster_level_sets(data, bins, total_nodes=total_nodes,
-                              min_node_size=min_node_size,
-                              n_passes=n_passes,
-                              verbose=verbose,method=method)
-  node_stats <- get_stats(data, nodes)
-  thresholds <- get_modality_thresholds_gmm(data, nodes)
-
-  message("Constructing graph...")
-  gr <- get_graph_nn(node_stats$q50, k=k, thresholds, force_sep)
-  mapper <- list(nodes=nodes, gr=gr, node_stats=node_stats,
-                 thresholds=thresholds)
-
-  message("Detecting communities...")
-  mapper <- detect_communities(mapper, data, resolution, defs)
-
-  message(paste("Done! Graph has", length(nodes), "nodes,", length(E(gr)),
-                "edges,", length(levels(mapper$community)),"communities."))
-
-  return(mapper)
-}
-
-
-#' @title detect_communities
-#' @description Use Leiden algorithm to identify communities in the
-#' HiTMapper network. A community is a group of similar nodes,
-#' which approximates the concept of "cell type".
-#' @param data A data matrix or data frame, with observations
-#' along rows and variables along columns.
-#' @param mapper Existing mapper object.
-#' @param resolution passed to the Leiden algorithm, controls
-#' the number of communities. Increase for more, decrease for fewer.
-#' @param defs A data frame of cell population definitions.
-#' @export
-detect_communities <- function(mapper, data, resolution=8, defs=NULL) {
-  community <- leiden_clustering(mapper$gr, resolution)
-  community_medians <- get_community_medians(community, mapper$nodes, data)
-
-  diff <- sweep(community_medians, 2, mapper$thresholds)
-  modality <- diff
-  modality[which(diff<=0)] <- "lo"
-  modality[which(diff>0)] <- "hi"
+  message("Clustering and creating graph...")
+  centroids <- clustering_main(data, cov(data), grid_size, 
+                               total_nodes, min_node_size, n_passes)
+  l <- assign_datapoints(data, centroids)
+  mapping <- l$mapping
+  sim <- l$sim
   
-  mapper$community <- community
-  mapper$community_medians <- community_medians
-  mapper$modality <- modality
-  mapper$clustering <- assign_cells(data, mapper, community)
+  tab <- tabulate(mapping)
+  zer <- which(tab==0)
   
-  if (!is.null(defs)) {
-    mapper <- label_communities(mapper, defs)
+  # remove nodes which contain no data points
+  if(length(zer) > 0) {
+    centroids <- centroids[-zer,]
+    sim <- sim[-zer,-zer]
     
-    mapper <- distinguish_communities(mapper, data)
-    mapper$community_medians <- get_community_medians(mapper$community, 
-                                                      mapper$nodes, data)
-    row.names(mapper$community_medians) <- levels(mapper$community)
+    for (z in sort(zer, decreasing = TRUE)) {
+      mapping[which(mapping >= z)] <- mapping[which(mapping >= z)]-1
+    }
+    tab <- tabulate(mapping)
   }
   
+  sim <- get_weights(tab, sim, min(min_node_size, ceiling(nrow(data)/1000)))
+  colnames(centroids) <- colnames(data)
+  gr <- get_graph_sim(sim)
+  mapper <- list(gr=gr, centroids=centroids,
+                 mapping=mapping)
+  if(!is.null(defs))
+    mapper$defs <- defs
+  
+  message("Detecting communities...")
+  mapper <- detect_communities(mapper, data, resolution)
+
   return(mapper)
 }
 
-
-#' @title extract_features
-#' @description Extract features (cell type proportions across samples)
-#' node compositions (node proportions across samples).
-#' @param data A data matrix or data frame, with observations
-#' along rows and variables along columns.
-#' @param sample_mapping A vector giving the sample membership of
-#' each data point.
+#' @title Perform community detection on the existing graph
+#'  with a new resolution, then re-label the communities.
 #' @param mapper Existing mapper object.
+#' @param data The data matrix used for obtaining mapper object.
+#' @param resolution Numeric, resolution for the Leiden algorithm.
 #' @export
-extract_features <- function(data, sample_mapping, mapper) {
-  mapper$features <- get_contingency_table(mapper$clustering,
-                                           sample_mapping)
-  mapper$node_composition <- node_composition(mapper, sample_mapping)
-  mapper$sample_names <- unique(sample_mapping)
+detect_communities <- function(mapper, data, resolution) {
+  mapper$community <- leiden_clustering(mapper$gr, resolution)
+  mapper$clustering <- mapper$community[mapper$mapping]
+  mapper <- parse_communities(mapper, data)
+
+  message(paste("Done! Graph has", length(V(mapper$gr)), "nodes,", 
+                length(E(mapper$gr)), "edges,", 
+                length(levels(mapper$community)),"communities."))
   return(mapper)
 }
 
@@ -142,23 +93,91 @@ extract_features <- function(data, sample_mapping, mapper) {
 #' and extracting features (cell type percentages).
 #' @param mapper Existing mapper object.
 #' @param defs Data frame of phenotype definitions.
-#' @param additional Named list, specifying attributes to be
-#' appended to phenotypes. E.g. list(CD38="activated", Ki67="proliferating").
+#' @param thresholds Data frame of user-supplied thresholds,
+#' for a subset of markers,
+#' to override those estimated by the algorithm.
 #' @export
-label_communities <- function(mapper, defs, additional=list()) {
+label_communities <- function(mapper, defs, thresholds=NULL) {
+  mapper$thresholds <- get_modality_thresholds_hier(mapper$centroids)
+  
+  if(!is.null(thresholds))
+    mapper$thresholds[thresholds$channel] <- thresholds$value
+  
+  diff <- sweep(mapper$community_medians, 2, mapper$thresholds)
+  mapper$modality <- ifelse(diff<=0, "lo", "hi")
+  
   matches <- match_defs(defs, mapper$modality)
   phenos <- c(defs$Phenotype, "Other")
   labels <- phenos[matches]
-  labels <- append_additional(additional, mapper$modality, labels, matches)
   labels <- make.unique(labels)
 
   levels(mapper$community) <- labels
   row.names(mapper$community_medians) <- labels
+  levels(mapper$clustering) <- labels
+
   if (!is.null(mapper$features))
-    colnames(mapper$features) <- c(labels, "Unassigned")
-  if (!is.null(mapper$clustering))
-    levels(mapper$clustering) <- c(levels(mapper$community), "Unassigned")
+    colnames(mapper$features) <- labels
 
   return(mapper)
 }
 
+
+#' @title plot_mapper
+#' @description Generates plots of the network color-coded by
+#' each of the specified markers.
+#' @param mapper Existing mapper object.
+#' @param markers A subset of the marker names.
+#' @param path The path where plots are saved.
+#' @param device The device used for image encoding. Supports
+#' png for bitmaps, pdf for vector graphics.
+#' @export
+plot_mapper <- function(mapper, markers=colnames(mapper$centroids),
+                        path = NULL, device="png") {
+  
+  if (device!="png" & device!="pdf")
+    stop("Supported devices are png and pdf.")
+  
+  size <- as.integer(table(mapper$mapping))
+  layout <- create_layout(mapper$gr, layout="fr")
+  
+  comm <- data.frame(x=layout$x,y=layout$y,
+                     c=mapper$community) %>%
+    group_by(c) %>%
+    summarise(x=median(x), y=median(y))
+  
+  for (marker in markers) {
+    g <- ggraph(layout) +
+      geom_edge_link(aes(alpha = weight)) +
+      geom_node_point(shape=21, aes(size=size, fill = mapper$centroids[,marker])) +
+      scale_fill_gradient2(low = "white", mid="white",
+                           high = "red",name = marker) +
+      scale_size(range=c(1,6), name="count") +
+      scale_edge_alpha(guide="none") +
+      theme_graph(base_family = "sans") +
+      geom_label(data=comm, aes(x=x,y=y,label=c),
+                 alpha=0.5, inherit.aes = FALSE)
+    
+    if (is.null(path)) {
+      plot(g)
+    } else {
+      ggsave(plot=g, filename=paste0(path,marker, ".", device))
+    }
+  }
+  
+  if (!is.null(mapper$community)) {
+    g <- ggraph(layout) +
+      geom_edge_link(aes(alpha = weight)) +
+      geom_node_point(aes(color=mapper$community, size=size)) +
+      scale_color_discrete(name="community") +
+      scale_edge_alpha(guide="none") +
+      scale_size(range=c(1,6), name="count") +
+      theme_graph(base_family = "sans") +
+      theme(text=element_text(size = 18))
+    
+    if (is.null(path)) {
+      plot(g)
+    } else {
+      ggsave(plot=g, filename=paste0(path,"community.", device))
+    }
+  }
+}

@@ -11,36 +11,52 @@ Rcpp::Rostream<true>&  Rcpp::Rcout = Rcpp::Rcpp_cout_get();
 Rcpp::Rostream<false>& Rcpp::Rcerr = Rcpp::Rcpp_cerr_get();
 #endif
 
-// intersections
-List intersections(List nodes);
-RcppExport SEXP _HiTMapper_intersections(SEXP nodesSEXP) {
-BEGIN_RCPP
-    Rcpp::RObject rcpp_result_gen;
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< List >::type nodes(nodesSEXP);
-    rcpp_result_gen = Rcpp::wrap(intersections(nodes));
-    return rcpp_result_gen;
-END_RCPP
-}
-// som
-List som(arma::mat& data, int nx, int ny, int C, double lr);
-RcppExport SEXP _HiTMapper_som(SEXP dataSEXP, SEXP nxSEXP, SEXP nySEXP, SEXP CSEXP, SEXP lrSEXP) {
+// assign_datapoints
+List assign_datapoints(arma::mat& data, arma::mat& centroids);
+RcppExport SEXP _HiTMapper_assign_datapoints(SEXP dataSEXP, SEXP centroidsSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< arma::mat& >::type data(dataSEXP);
-    Rcpp::traits::input_parameter< int >::type nx(nxSEXP);
-    Rcpp::traits::input_parameter< int >::type ny(nySEXP);
-    Rcpp::traits::input_parameter< int >::type C(CSEXP);
-    Rcpp::traits::input_parameter< double >::type lr(lrSEXP);
-    rcpp_result_gen = Rcpp::wrap(som(data, nx, ny, C, lr));
+    Rcpp::traits::input_parameter< arma::mat& >::type centroids(centroidsSEXP);
+    rcpp_result_gen = Rcpp::wrap(assign_datapoints(data, centroids));
+    return rcpp_result_gen;
+END_RCPP
+}
+// compute_centroids
+arma::mat compute_centroids(arma::mat& data, arma::ivec& mapping, int k);
+RcppExport SEXP _HiTMapper_compute_centroids(SEXP dataSEXP, SEXP mappingSEXP, SEXP kSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< arma::mat& >::type data(dataSEXP);
+    Rcpp::traits::input_parameter< arma::ivec& >::type mapping(mappingSEXP);
+    Rcpp::traits::input_parameter< int >::type k(kSEXP);
+    rcpp_result_gen = Rcpp::wrap(compute_centroids(data, mapping, k));
+    return rcpp_result_gen;
+END_RCPP
+}
+// clustering_main
+arma::mat clustering_main(arma::mat& data, arma::mat& cova, arma::uvec& grid_size, int total_nodes, int min_node_size, int n_passes);
+RcppExport SEXP _HiTMapper_clustering_main(SEXP dataSEXP, SEXP covaSEXP, SEXP grid_sizeSEXP, SEXP total_nodesSEXP, SEXP min_node_sizeSEXP, SEXP n_passesSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< arma::mat& >::type data(dataSEXP);
+    Rcpp::traits::input_parameter< arma::mat& >::type cova(covaSEXP);
+    Rcpp::traits::input_parameter< arma::uvec& >::type grid_size(grid_sizeSEXP);
+    Rcpp::traits::input_parameter< int >::type total_nodes(total_nodesSEXP);
+    Rcpp::traits::input_parameter< int >::type min_node_size(min_node_sizeSEXP);
+    Rcpp::traits::input_parameter< int >::type n_passes(n_passesSEXP);
+    rcpp_result_gen = Rcpp::wrap(clustering_main(data, cova, grid_size, total_nodes, min_node_size, n_passes));
     return rcpp_result_gen;
 END_RCPP
 }
 
 static const R_CallMethodDef CallEntries[] = {
-    {"_HiTMapper_intersections", (DL_FUNC) &_HiTMapper_intersections, 1},
-    {"_HiTMapper_som", (DL_FUNC) &_HiTMapper_som, 5},
+    {"_HiTMapper_assign_datapoints", (DL_FUNC) &_HiTMapper_assign_datapoints, 2},
+    {"_HiTMapper_compute_centroids", (DL_FUNC) &_HiTMapper_compute_centroids, 3},
+    {"_HiTMapper_clustering_main", (DL_FUNC) &_HiTMapper_clustering_main, 6},
     {NULL, NULL, 0}
 };
 

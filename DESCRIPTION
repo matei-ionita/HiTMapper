@@ -1,22 +1,20 @@
 Package: HiTMapper
 Type: Package
 Title: Graph-based modeling of cell states.
-Version: 0.3.0
+Version: 0.5.0
 Author: Matei Ionita
 Maintainer: Matei Ionita <matei.ionita@gmail.com>
-Description: Uses the Mapper algorithm from topological data analysis to create a sparse graph model based on measurements from single cells.
+Description: Create a sparse graph model based on single cell measurements.
 Imports:
   ggplot2,
   magrittr,
   dplyr,
+  stringr,
+  tibble,
   igraph,
   ggraph,
   leidenAlg,
-  ggiraph,
-  Rcpp,
-  KernSmooth,
-  glmnet,
-  mclust
+  Rcpp
 LinkingTo: Rcpp, RcppArmadillo
 License: GPL-3
 Encoding: UTF-8

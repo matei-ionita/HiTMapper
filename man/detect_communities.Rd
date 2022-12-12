@@ -2,23 +2,19 @@
 % Please edit documentation in R/mapperMethods.R
 \name{detect_communities}
 \alias{detect_communities}
-\title{detect_communities}
+\title{Perform community detection on the existing graph
+ with a new resolution, then re-label the communities.}
 \usage{
-detect_communities(mapper, data, resolution = 8, defs = NULL)
+detect_communities(mapper, data, resolution)
 }
 \arguments{
 \item{mapper}{Existing mapper object.}
 
-\item{data}{A data matrix or data frame, with observations
-along rows and variables along columns.}
+\item{data}{The data matrix used for obtaining mapper object.}
 
-\item{resolution}{passed to the Leiden algorithm, controls
-the number of communities. Increase for more, decrease for fewer.}
-
-\item{defs}{A data frame of cell population definitions.}
+\item{resolution}{Numeric, resolution for the Leiden algorithm.}
 }
 \description{
-Use Leiden algorithm to identify communities in the
-HiTMapper network. A community is a group of similar nodes,
-which approximates the concept of "cell type".
+Perform community detection on the existing graph
+ with a new resolution, then re-label the communities.
 }

@@ -4,15 +4,16 @@
 \alias{label_communities}
 \title{label_communities}
 \usage{
-label_communities(mapper, defs, additional = list())
+label_communities(mapper, defs, thresholds = NULL)
 }
 \arguments{
 \item{mapper}{Existing mapper object.}
 
 \item{defs}{Data frame of phenotype definitions.}
 
-\item{additional}{Named list, specifying attributes to be
-appended to phenotypes. E.g. list(CD38="activated", Ki67="proliferating").}
+\item{thresholds}{Data frame of user-supplied thresholds,
+for a subset of markers,
+to override those estimated by the algorithm.}
 }
 \description{
 Wrapper for community detection, labeling,
