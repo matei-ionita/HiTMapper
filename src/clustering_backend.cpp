@@ -11,9 +11,10 @@ List assign_datapoints(arma::mat& data, arma::mat& centroids) {
 	double* p_data = data.memptr();
 	double* p_node = centroids.memptr();
 
+	NumericVector dist = NumericVector(m);
+
 	for (int i=0; i<n; i++) {
 		// find bmu (best matching unit)
-		NumericVector dist = NumericVector(m);
 
 		for (int j=0; j<m; j++) {
 			dist_curr=0;
@@ -84,20 +85,6 @@ arma::mat som(arma::mat& data, arma::uvec& bin, int m,
 	}
 
 	return(node_pos);
-}
-
-
-arma::rowvec get_mean_manual(arma::mat& data, arma::ivec& bin) {
-	int n = bin.n_elem, d = data.n_cols;
-	arma::rowvec mean_vec(d, arma::fill::zeros);
-
-	for (int i=0; i<n; i++) {
-		int ind = bin(i);
-		for (int j=0; j<d; j++)
-			mean_vec(j) += data(ind,j);
-	}
-	mean_vec /= n;
-	return mean_vec;
 }
 
 

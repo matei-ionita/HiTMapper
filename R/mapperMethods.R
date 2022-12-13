@@ -38,24 +38,25 @@ HiTMapper <- function(data, total_nodes=1000,
   message("Clustering and creating graph...")
   centroids <- clustering_main(data, cov(data), grid_size, 
                                total_nodes, min_node_size, n_passes)
+  message("Mapping...")
   l <- assign_datapoints(data, centroids)
   mapping <- l$mapping
   sim <- l$sim
   
   tab <- tabulate(mapping)
   zer <- which(tab==0)
-  
+
   # remove nodes which contain no data points
   if(length(zer) > 0) {
     centroids <- centroids[-zer,]
     sim <- sim[-zer,-zer]
-    
+
     for (z in sort(zer, decreasing = TRUE)) {
       mapping[which(mapping >= z)] <- mapping[which(mapping >= z)]-1
     }
     tab <- tabulate(mapping)
   }
-  
+
   sim <- get_weights(tab, sim, min(min_node_size, ceiling(nrow(data)/1000)))
   colnames(centroids) <- colnames(data)
   gr <- get_graph_sim(sim)
