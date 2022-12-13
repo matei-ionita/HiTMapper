@@ -81,8 +81,8 @@ detect_communities <- function(mapper, data, resolution) {
   mapper$clustering <- mapper$community[mapper$mapping]
   mapper <- parse_communities(mapper, data)
 
-  message(paste("Done! Graph has", length(V(mapper$gr)), "nodes,", 
-                length(E(mapper$gr)), "edges,", 
+  message(paste("Done! Graph has", length(V(mapper$gr)), "nodes,",
+                length(E(mapper$gr)), "edges,",
                 length(levels(mapper$community)),"communities."))
   return(mapper)
 }

@@ -38,6 +38,8 @@ parse_communities <- function(mapper, data) {
   if (!is.null(mapper$defs)) {
     mapper <- label_communities(mapper, mapper$defs)
   }
+  
+  return(mapper)
 }
 
 
