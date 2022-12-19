@@ -71,6 +71,20 @@ HiTMapper <- function(data, total_nodes=1000,
   return(mapper)
 }
 
+
+#' @title Use existing mapper model to predict cluster membership of new data.
+#' @param mapper Existing mapper object.
+#' @param data New data matrix, must have same columns as that used for
+#' mapper model.
+#' @export
+HiTMapper_predict <- function(mapper, data) {
+  mapper$mapping <- predict_datapoints(data, mapper$centroids)
+  mapper$clustering <- mapper$community[mapper$mapping]
+  return(mapper)
+}
+
+
+
 #' @title Perform community detection on the existing graph
 #'  with a new resolution, then re-label the communities.
 #' @param mapper Existing mapper object.

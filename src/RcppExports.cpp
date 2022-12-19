@@ -11,6 +11,18 @@ Rcpp::Rostream<true>&  Rcpp::Rcout = Rcpp::Rcpp_cout_get();
 Rcpp::Rostream<false>& Rcpp::Rcerr = Rcpp::Rcpp_cerr_get();
 #endif
 
+// predict_datapoints
+IntegerVector predict_datapoints(arma::mat& data, arma::mat& centroids);
+RcppExport SEXP _HiTMapper_predict_datapoints(SEXP dataSEXP, SEXP centroidsSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< arma::mat& >::type data(dataSEXP);
+    Rcpp::traits::input_parameter< arma::mat& >::type centroids(centroidsSEXP);
+    rcpp_result_gen = Rcpp::wrap(predict_datapoints(data, centroids));
+    return rcpp_result_gen;
+END_RCPP
+}
 // assign_datapoints
 List assign_datapoints(arma::mat& data, arma::mat& centroids);
 RcppExport SEXP _HiTMapper_assign_datapoints(SEXP dataSEXP, SEXP centroidsSEXP) {
@@ -54,6 +66,7 @@ END_RCPP
 }
 
 static const R_CallMethodDef CallEntries[] = {
+    {"_HiTMapper_predict_datapoints", (DL_FUNC) &_HiTMapper_predict_datapoints, 2},
     {"_HiTMapper_assign_datapoints", (DL_FUNC) &_HiTMapper_assign_datapoints, 2},
     {"_HiTMapper_compute_centroids", (DL_FUNC) &_HiTMapper_compute_centroids, 3},
     {"_HiTMapper_clustering_main", (DL_FUNC) &_HiTMapper_clustering_main, 6},

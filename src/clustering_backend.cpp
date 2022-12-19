@@ -3,6 +3,39 @@ using namespace Rcpp;
 
 
 // [[Rcpp::export]]
+IntegerVector predict_datapoints(arma::mat& data, arma::mat& centroids) {
+	int n = data.n_rows, d = data.n_cols, m = centroids.n_rows, i, j, k, bmu;
+	double dist, dist_curr, dif;
+	IntegerVector mapping = IntegerVector(n);
+	double* p_data = data.memptr();
+	double* p_node = centroids.memptr();
+
+	for (i=0; i<n; i++) {
+		// find bmu (best matching unit)
+		dist = arma::datum::inf;
+
+		for (j=0; j<m; j++) {
+			dist_curr=0;
+			for (k=0; k<d; k++) {
+				dif = p_data[i+k*n] - p_node[j+k*m];
+				dist_curr += dif*dif;
+			}
+
+			if (dist_curr < dist) {
+				dist = dist_curr;
+				bmu = j;
+			}
+		}
+
+		// assign data point to bmu
+		mapping(i) = bmu+1;
+	}
+
+	return mapping;
+}
+
+
+// [[Rcpp::export]]
 List assign_datapoints(arma::mat& data, arma::mat& centroids) {
 	int n = data.n_rows, d = data.n_cols, m = centroids.n_rows;
 	double dist_curr, dif;
@@ -55,9 +88,10 @@ arma::mat som(arma::mat& data, arma::uvec& bin, int m,
 	double* p_node = node_pos.memptr();
 
 	// som learning
+	IntegerVector s;
 
 	for (i=0; i<n_passes*n; i++) {
-		IntegerVector s = Rcpp::sample(n,1)-1;
+		s = Rcpp::sample(n,1)-1;
 		in = bin(s(0));
 
 		// find bmu (best matching unit)
@@ -106,12 +140,12 @@ arma::mat get_centroids(arma::mat& data, arma::uvec& mapping,
 	arma::vec& all_k, int n_passes) {
 
 	int n_bins = all_k.n_elem, i, k, d=data.n_cols, m=sum(all_k), start=0;
-	arma::uvec un = unique(mapping);
+	arma::uvec un = unique(mapping), bin;
 	arma::mat centroids = arma::mat(m, d);
 
 	for (i=0; i<n_bins; i++) {
 		k = all_k(i);
-		arma::uvec bin = find(mapping==un(i));
+		bin = find(mapping==un(i));
 
 		if (k==0)
 			continue;
@@ -156,9 +190,10 @@ arma::uvec binning(arma::mat& filter, arma::vec& b1, arma::vec& b2) {
 arma::mat compute_centroids(arma::mat& data, arma::ivec& mapping, int k) {
 	int d = data.n_cols, i;
 	arma::mat centroids = arma::mat(k,d);
+	arma::uvec idx;
 
 	for (i=0; i<k; i++) {
-		arma::uvec idx = find(mapping == i+1);
+		idx = find(mapping == i+1);
 		centroids.row(i) = get_mean_manual(data, idx);
 	}
 
