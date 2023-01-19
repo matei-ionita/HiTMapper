@@ -8,6 +8,14 @@ output:
     fig_height: 10
 ---
 
+## First install and load the relevant packages
+
+* HiTMapper
+* ggraph
+* tidyverse
+
+## Import the packages we need
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(HiTMapper)
@@ -15,11 +23,12 @@ library(ggraph)
 library(tidyverse)
 ```
 
-Load the example dataset, originally from the FlowSOM package.
+## Load the example dataset from the HiTMapper package.
+When HiTMapper is imported, an example data set is also loaded. Options to load the example data include running any of the following: HiTMapper::toy_data, toy_data, or data("toy_data").
 
-```{r lymphocytes}
-data("lymphocytes")
-head(lymphocytes)
+```{r toy_data}
+data("toy_data")
+head(toy_data)
 ```
 
 
@@ -29,9 +38,8 @@ the data in matrix or data frame format, aggregated from all fcs files of intere
 
 ```{r mapper}
 set.seed(52)
-mapper <- HiTMapper(lymphocytes, kNodes = 400, overlap = 0.2,
-                    outlierCutoff = 20)
-mapper <- pruneEdges(mapper, cutoff=0.01)
+mapper <- HiTMapper(toy_data, total_nodes=200)
+#mapper <- pruneEdges(mapper, cutoff=0.01)
 ```
 
 The function `getCommunitiesFeatures()` is a wrapper around three functionalities:
@@ -44,22 +52,22 @@ Load the phenotype table. Phenotypes should be listed along the rows, with "lo",
 the marker modality which defines the phenotype. Missing values, or values other than "lo", "hi", indicate
 markers which do not contribute to the phenotype definition.
 ```{r defs}
-data("defs")
-defs
+#data("defs")
+#defs
 ```
 
 In the example data, we have a single sample.
 ```{r samples}
-sample_mapping <- rep("1", nrow(lymphocytes))
+#sample_mapping <- rep("1", nrow(toy_data))
 ```
 
 Compute communities and features, and augment the mapper object with the result. 
 The `resolution` parameter is passed to the Leiden method;
 a higher resolution means more resulting communities.
 ```{r communities_features}
-mapper <- getCommunitiesFeatures(lymphocytes, sample_mapping, mapper, defs, resolution=2)
-levels(mapper$community)
-mapper$features
+#mapper <- getCommunitiesFeatures(toy_data, sample_mapping, mapper, defs, resolution=2)
+#levels(mapper$community)
+#mapper$features
 ```
 
 You can use the `ggraph` package to make various network plots;
@@ -68,16 +76,16 @@ the graph. For example, color the nodes by community assignment.
 The layout is non-deterministic; try out a couple of random seeds.
 
 ```{r communities}
-set.seed(52)
-community <- mapper$community
-size <- sapply(mapper$nodes, length)
+#set.seed(52)
+#community <- mapper$community
+#size <- sapply(mapper$nodes, length)
 
-ggraph(mapper$gr, layout="fr") +
-  geom_edge_link(aes(alpha = weight)) +
-  geom_node_point(aes(color = community, size=size)) +
-  scale_edge_alpha(guide="none") +
-  theme_graph(base_family = "sans") +
-  theme(text=element_text(size = 18))
+#ggraph(mapper$gr, layout="fr") +
+#  geom_edge_link(aes(alpha = weight)) +
+#  geom_node_point(aes(color = community, size=size)) +
+#  scale_edge_alpha(guide="none") +
+#  theme_graph(base_family = "sans") +
+#  theme(text=element_text(size = 18))
 ```
 
 Alternatively, use the built-in `plotMapper` function, which
@@ -89,7 +97,7 @@ when plotting multiple markers.
 ```{r distribution}
 set.seed(52)
 markers <- c("CD3", "CD8", "CD19", "NK1.1")
-plotMapper(mapper, markers=markers, path=NULL)
+plot_mapper(mapper, markers=markers, path=NULL)
 ```
 
 Also check out the function `plotMapperInteractive`, which outputs
