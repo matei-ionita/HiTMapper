@@ -12,7 +12,7 @@ Mapper is an algorithm developed for topological data analysis, originally due t
 
 Each node in the Mapper graph represents multiple data points, resulting in a compact visualization of the dataset. Crucially, the nodes are fine-grained, not meant to represent distinct phenotypes, but rather subtly different cell states. This enables the visualization of hundreds of detailed cell states in a relational framework. We can also use the graph to provide a warm start for traditional clustering, using the Leiden method[[2]](#2) for community detection.
 
-![CD3_nodes](CD3.png)
+![visualization](clustering_visualization.png)
 
 
 ## References

@@ -11,7 +11,6 @@ output:
 ## First install and load the relevant packages
 
 * HiTMapper
-* ggraph
 * tidyverse
 
 ## Import the packages we need
@@ -31,77 +30,84 @@ data("toy_data")
 head(toy_data)
 ```
 
+A data frame containing phenotype definitions is also available in the package.
+HiTMapper can use it to label clusters. For different datasets/panels, you can
+provide phenotype definitions in the same format.
 
-Obtain the network and prune some low-weight edges (to speed up the plotting 
-without noticeable impact on performance). For the moment, you need to provide
-the data in matrix or data frame format, aggregated from all fcs files of interest.
+```{r defs}
+defs
+```
+
+
+The function `HiTMapper` is a wrapper for all important functionality.
+The only required parameter is the input cytometry data.
+
+* For the moment, you need to provide the data as a matrix, 
+aggregated from all fcs files of interest.
+* The default number of nodes to be used in the graph is 1000; 
+for small datasets like our example data (10,000 cells) a smaller number 
+works better.
+* After building the graph, HiTMapper groups similar nodes into larger
+communities. The resolution parameter controls the granularity of communities.
+Values between 0.1 and 2 are usually good; the default is 1.
+
+The output of `HiTMapper` is a list, containing various 
+information about the model.
 
 ```{r mapper}
-set.seed(52)
-mapper <- HiTMapper(toy_data, total_nodes=200)
-#mapper <- pruneEdges(mapper, cutoff=0.01)
+set.seed(0)
+mapper <- HiTMapper(toy_data, total_nodes=200, resolution=0.5, defs=defs)
+names(mapper)
 ```
 
-The function `getCommunitiesFeatures()` is a wrapper around three functionalities:
-1. community detection using the Leiden algorithm;
-2. computing median marker expression for each community, and labeling communities based on a table of user-provided phenotypes;
-3. computing a sample-by-community contingency table (the "features" are percentages of cells from each sample which belong to a given community).
-It needs as input the phenotype definitions and the assignment of cells to biological samples.
 
-Load the phenotype table. Phenotypes should be listed along the rows, with "lo", "hi" used to indicate
-the marker modality which defines the phenotype. Missing values, or values other than "lo", "hi", indicate
-markers which do not contribute to the phenotype definition.
-```{r defs}
-#data("defs")
-#defs
+For the remainder of this vignette, we will explore some of the list elements
+in the output. The most important is `clustering`, an array of cluster membership
+ids for every cell. You can use the `table` function from base R to get a quick
+summary.
+
+```{r clustering}
+table(mapper$clustering)
 ```
 
-In the example data, we have a single sample.
-```{r samples}
-#sample_mapping <- rep("1", nrow(toy_data))
+Another important list element is `community_medians`, which gives median
+marker intensity for each community. Internally, `HiTMapper` uses these
+community medians and the phenotype definitions to assign labels.
+
+```{r community_medians}
+heatmap(mapper$community_medians)
 ```
 
-Compute communities and features, and augment the mapper object with the result. 
-The `resolution` parameter is passed to the Leiden method;
-a higher resolution means more resulting communities.
-```{r communities_features}
-#mapper <- getCommunitiesFeatures(toy_data, sample_mapping, mapper, defs, resolution=2)
-#levels(mapper$community)
-#mapper$features
-```
-
-You can use the `ggraph` package to make various network plots;
-just provide the `gr` field of the mapper object, which contains
-the graph. For example, color the nodes by community assignment.
+The list element `gr` contains the graph that HiTMapper constructed,
+as an igraph object. If you're familiar with the `igraph` package, you
+can use the functions therein to operate on `gr`.
+You can also use the `ggraph` package to make various network plots;
+for example, color the nodes by community assignment.
 The layout is non-deterministic; try out a couple of random seeds.
 
 ```{r communities}
-#set.seed(52)
-#community <- mapper$community
-#size <- sapply(mapper$nodes, length)
+set.seed(0)
 
-#ggraph(mapper$gr, layout="fr") +
-#  geom_edge_link(aes(alpha = weight)) +
-#  geom_node_point(aes(color = community, size=size)) +
-#  scale_edge_alpha(guide="none") +
-#  theme_graph(base_family = "sans") +
-#  theme(text=element_text(size = 18))
+ggraph(mapper$gr, layout="fr") +
+ geom_edge_link(aes(alpha = weight)) +
+ geom_node_point(aes(color = mapper$community, size=tabulate(mapper$mapping))) +
+ scale_edge_alpha(guide="none") +
+ theme_graph(base_family = "sans") +
+ theme(text=element_text(size = 18))
 ```
 
-Alternatively, use the built-in `plotMapper` function, which
-plots the distribution of various markers in the Mapper graph, 
-and their agreement with the community assignment. The `path`
+Alternatively, use the built-in `plot_mapper` function, which
+plots the distribution of chosen markers in the Mapper graph, 
+as well as the community assignment of each node. The `path`
 argument can be used to save plots to files; this is recommended
 when plotting multiple markers.
 
 ```{r distribution}
-set.seed(52)
-markers <- c("CD3", "CD8", "CD19", "NK1.1")
+set.seed(0)
+markers <- c("CD3", "CD19", "CD16")
 plot_mapper(mapper, markers=markers, path=NULL)
 ```
 
-Also check out the function `plotMapperInteractive`, which outputs
-interactive network plots in html format.
 
 
 
