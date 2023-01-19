@@ -11,12 +11,11 @@ HiTMapper(
   defs = NULL,
   grid_size = c(5, 4),
   min_node_size = 50,
-  n_passes = 10,
-  nn = 60
+  n_passes = 10
 )
 }
 \arguments{
-\item{data}{A data matrix or data frame, with observations
+\item{data}{A data matrix, with observations
 along rows and variables along columns.}
 
 \item{total_nodes}{Approximate number of nodes for the Mapper graph.}
