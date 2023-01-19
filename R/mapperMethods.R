@@ -13,7 +13,7 @@ NULL
 
 #' @title HiTMapper
 #' @description Wrapper for the core Mapper functionality.
-#' @param data A data matrix or data frame, with observations
+#' @param data A data matrix, with observations
 #' along rows and variables along columns.
 #' @param total_nodes Approximate number of nodes for the Mapper graph.
 #' @param resolution Used in community detection. Larger values lead to more
@@ -29,7 +29,7 @@ NULL
 #' @export
 HiTMapper <- function(data, total_nodes=1000,
                       resolution=1, defs=NULL,
-                      grid_size=c(10,10),
+                      grid_size=c(5,4),
                       min_node_size=50, n_passes=10) {
 
   if(!is.matrix(data))
@@ -41,25 +41,10 @@ HiTMapper <- function(data, total_nodes=1000,
   message("Mapping...")
   l <- assign_datapoints(data, centroids)
   mapping <- l$mapping
-  sim <- l$sim
+  weights <- l$weights
   
-  tab <- tabulate(mapping)
-  zer <- which(tab==0)
-
-  # remove nodes which contain no data points
-  if(length(zer) > 0) {
-    centroids <- centroids[-zer,]
-    sim <- sim[-zer,-zer]
-
-    for (z in sort(zer, decreasing = TRUE)) {
-      mapping[which(mapping >= z)] <- mapping[which(mapping >= z)]-1
-    }
-    tab <- tabulate(mapping)
-  }
-
-  sim <- get_weights(tab, sim, min(min_node_size, ceiling(nrow(data)/1000)))
   colnames(centroids) <- colnames(data)
-  gr <- get_graph_sim(sim)
+  gr <- get_graph(weights)
   mapper <- list(gr=gr, centroids=centroids,
                  mapping=mapping)
   if(!is.null(defs))

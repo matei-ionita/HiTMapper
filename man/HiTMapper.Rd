@@ -9,9 +9,10 @@ HiTMapper(
   total_nodes = 1000,
   resolution = 1,
   defs = NULL,
-  grid_size = c(10, 10),
+  grid_size = c(5, 4),
   min_node_size = 50,
-  n_passes = 10
+  n_passes = 10,
+  nn = 60
 )
 }
 \arguments{

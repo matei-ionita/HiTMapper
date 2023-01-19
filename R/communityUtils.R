@@ -9,20 +9,8 @@ leiden_clustering <- function(gr, resolution, out) {
 }
 
 
-get_weights <- function(tab, sim, min_n) {
-  union_size <- outer(tab, tab, FUN="+")
-  sim <- sim/union_size
-  
-  outliers <- which(tab <= min_n)
-  sim[outliers,] <- sim[outliers,] / 10
-  sim[setdiff(seq(nrow(sim)),outliers),outliers] <- 
-    sim[setdiff(seq(nrow(sim)),outliers),outliers] / 10
-  return(sim)
-}
-
-
-get_graph_sim <- function(sim) {
-  gr <- graph_from_adjacency_matrix(sim, mode="undirected", weighted = TRUE)
+get_graph <- function(weights) {
+  gr <- graph_from_adjacency_matrix(weights, mode="undirected", weighted = TRUE)
   # remove edges with tiny weights, to help plotting
   gr <- delete_edges(gr, which(E(gr)$weight < 1e-3))
   return(gr)

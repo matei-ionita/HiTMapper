@@ -1,7 +1,7 @@
 Package: HiTMapper
 Type: Package
 Title: Graph-based modeling of cell states.
-Version: 0.5.0
+Version: 0.6.0
 Author: Matei Ionita
 Maintainer: Matei Ionita <matei.ionita@gmail.com>
 Description: Create a sparse graph model based on single cell measurements.
