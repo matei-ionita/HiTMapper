@@ -27,26 +27,30 @@ NULL
 #' @param min_node_size Minimum number of cells in a node.
 #' @param n_passes Number of passes over all data points when clustering.
 #' @export
-HiTMapper <- function(data, total_nodes=1000,
+HiTMapper <- function(data, total_nodes=100,
                       resolution=1, defs=NULL,
-                      grid_size=c(5,4),
+                      grid_size=c(4,3),
                       min_node_size=50, n_passes=10) {
 
   if(!is.matrix(data))
     stop("Please enter your data in matrix format.")
 
   message("Clustering and creating graph...")
-  centroids <- clustering_main(data, cov(data), grid_size, 
+  centroids <- clustering_main(data, cov(data), grid_size,
                                total_nodes, min_node_size, n_passes)
+  
   message("Mapping...")
   l <- assign_datapoints(data, centroids)
   mapping <- l$mapping
-  weights <- l$weights
-  
+  cosd <- l$cos
+  fac <- 1/sqrt(diag(cosd))
+  weights <- t(cosd*fac)*fac
+
   colnames(centroids) <- colnames(data)
+  
   gr <- get_graph(weights)
   mapper <- list(gr=gr, centroids=centroids,
-                 mapping=mapping)
+                 mapping=mapping, weights=weights)
   if(!is.null(defs))
     mapper$defs <- defs
   

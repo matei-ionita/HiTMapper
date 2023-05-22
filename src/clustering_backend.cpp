@@ -34,55 +34,25 @@ IntegerVector predict_datapoints(arma::mat& data, arma::mat& centroids) {
 	return mapping;
 }
 
+void softmin(arma::rowvec& x) {
+	x = sqrt(x);
+	double mi = min(x);
+	x = exp(mi-x);
+	x.elem( find(x < 0.3) ).zeros();
 
-
-arma::mat get_weights(arma::mat& sim, IntegerVector mapping) {
-	int n = mapping.length(), m = sim.n_rows;
-	arma::uvec tab = arma::uvec(m, arma::fill::zeros);
-	arma::vec norms = arma::vec(m), col = arma::vec(m);
-	arma::mat weights = arma::mat(m,m);
-
-	for (int i=0; i<n; i++)
-		tab(mapping(i)-1)++;
-
-	for (int i=0; i<m; i++)
-		for (int j=0; j<m; j++) {
-			sim(i,j) /= tab(i)+tab(j);
-			if (i==j)
-				sim(i,j)=1;
-		}
-
-	for (int i=0; i<m; i++) {
-		col = sim.col(i);
-		norms(i) = sqrt(sum(col % col));
-	}
-
-	for (int i=0; i<m; i++)
-		for (int j=i; j<m; j++) {
-			double weight = sum(sim.col(i) % sim.col(j));
-			weight /= norms(i) * norms(j);
-
-			if (weight < 0.05 && sim(i,j)==0)
-				weight = 0;
-
-			weights(i,j) = weight;
-			weights(j,i) = weight;
-		}
-
-	return weights;
+	x = x / sum(x);
 }
-
 
 // [[Rcpp::export]]
 List assign_datapoints(arma::mat& data, arma::mat& centroids) {
 	int n = data.n_rows, d = data.n_cols, m = centroids.n_rows;
 	double dist_curr, dif;
 	IntegerVector mapping = IntegerVector(n);
-	arma::mat sim = arma::mat(m,m, arma::fill::zeros);
 	double* p_data = data.memptr();
 	double* p_node = centroids.memptr();
 
-	NumericVector dist = NumericVector(m);
+	arma::rowvec dist = arma::rowvec(m);
+	arma::mat cos = arma::mat(m,m, arma::fill::zeros), this_cos;
 
 	for (int i=0; i<n; i++) {
 		// find bmu (best matching unit)
@@ -96,129 +66,75 @@ List assign_datapoints(arma::mat& data, arma::mat& centroids) {
 			dist(j) = dist_curr;
 		}
 
-		int bmu = which_min(dist);
-		double d1 = dist(bmu);
-		dist(bmu) = arma::datum::inf;
-		int bmu2 = which_min(dist);
-		double d2 = dist(bmu2);
-		sim(bmu, bmu2) += exp(-(d2-d1)*(d2-d1));
-		sim(bmu2, bmu) += exp(-(d2-d1)*(d2-d1));
-
 		// assign data point to bmu
+		int bmu = dist.index_min();
 		mapping(i) = bmu+1;
+
+		// update cosine distances between nodes
+		softmin(dist);
+		arma::uvec q = find(dist);
+		this_cos = dist(q) * dist(q).t();
+		cos(q,q) += this_cos;
 	}
 
-	arma::mat weights = get_weights(sim, mapping);
-
-	return List::create(Named("mapping") = mapping, _["weights"] = weights);
+	return List::create(Named("mapping") = mapping, _["cos"] = cos);
 }
 
 
+arma::mat som(arma::mat& data, arma::uvec& bin, int m, int n_passes=10, double lr=0.05) {
+  int n = bin.n_elem, n0 = data.n_rows, d = data.n_cols, i, j, k, bmu, in, s=100;
+  double dist, dist_curr, dif;
+  arma::rowvec diff = arma::rowvec(), update = arma::rowvec();
+  arma::mat node_pos = arma::mat(m,d);
+  
+  // random initialization
+  IntegerVector ind = Rcpp::sample(n, m, false);
+  for (j=0; j<m; j++) {
+    node_pos.row(j) = data.row(bin(ind(j) - 1));
+  }
+  
+  double* p_data = data.memptr();
+  double* p_node = node_pos.memptr();
+  
+  // som learning
+  ind = IntegerVector(s);
+  
+  for (i=0; i<n_passes*n; i++) {
+  	if (i % s == 0)
+  		ind = Rcpp::sample(n, s, true)-1;
+    // ind = Rcpp::sample(n, 1) -1;
+    // in = bin(ind(0));
+    in = bin(ind(i % s));
 
-
-arma::mat km(arma::mat& data, arma::uvec& bin, int m, int n_passes, double tol=0.01) {
-	int n = bin.n_elem, n0 = data.n_rows, d = data.n_cols, i, j, k, in, curr, bmd;
-	double dist, dist_curr, dif;
-	arma::mat node_pos = arma::mat(m,d), node_pos_old = arma::mat(m,d);
-	arma::uvec bmu = arma::uvec(n), occu = arma::uvec(n), outliers = arma::uvec();
-	arma::vec bd = arma::vec(n);
-	arma::uvec count = arma::uvec(m, arma::fill::zeros);
-	arma::vec quant = {0.25,0.75};
-
-	// random initialization
-	IntegerVector ind = Rcpp::sample(n, m, false);
-	for (j=0; j<m; j++)
-		node_pos.row(j) = data.row(bin(ind(j)-1));
-
-	double* p_data = data.memptr();
-	double* p_node = node_pos.memptr();
-
-	for (int iter=0; iter<n_passes; iter++) {
-
-		// assign each datapoint to best matching centroid
-		for (i=0; i<n; i++) {
-			in = bin(i);
-			dist = arma::datum::inf;
-
-			for (j=0; j<m; j++) {
-
-				dist_curr=0;
-				for (k=0; k<d; k++) {
-					dif = p_data[in+k*n0] - p_node[j+k*m];
-					dist_curr += dif*dif;
-				}
-
-				if (dist_curr < dist) {
-					dist = dist_curr;
-					bmu(i) = j;
-					bd(i) = dist;
-				}
-			}
-		}
-
-		arma::vec q = quantile(bd, quant);
-		double upper = q(1) + 1.5*(q(1)-q(0));
-
-		count *= 0;
-		for (i=0; i<n; i++) {
-			if (bd(i) <= upper)
-				count(bmu(i))++;
-		}
-
-		// update centroid position
-		node_pos *= 0;
-		for (i=0; i<n; i++) {
-			curr = bmu(i);
-			in = bin(i);
-
-			if (bd(i) > upper)
-				continue;
-
-			for (k=0; k<d; k++) {
-				p_node[curr+k*m] += p_data[in+k*n0] / count(curr);
-			}
-		}
-
-		occu = occu * 0;
-
-		for (j=0; j<m; j++) {
-			dist = arma::datum::inf;
-			for (i=0; i<n; i++) {
-				in = bin(i);
-				dist_curr=0;
-
-				for (k=0; k<d; k++) {
-					dif = p_data[in+k*n0] - p_node[j+k*m];
-					dist_curr += dif*dif;
-				}
-
-				if (dist_curr < dist) {
-					dist = dist_curr;
-					bmd=i;
-				}
-			}
-
-			while(occu(bmd)==1) {
-				ind = Rcpp::sample(n, 1, false);
-				bmd=ind(0)-1;
-			}
-
-			node_pos.row(j) = data.row(bin(bmd));
-			occu(bmd)=1;
-		}
-
-		if (iter > 0 && accu(abs(node_pos - node_pos_old)) < tol)
-			break;
-
-		node_pos_old = node_pos;
-
-	}
-
-	return(node_pos);
+    // find bmu (best matching unit)
+    dist = arma::datum::inf;
+    
+    for (j=0; j<m; j++) {
+      
+      dist_curr=0;
+      for (k=0; k<d; k++) {
+        dif = p_data[in+k*n0] - p_node[j+k*m];
+        dist_curr += dif*dif;
+      }
+      
+      if (dist_curr < dist) {
+        dist = dist_curr;
+        bmu = j;
+      }
+    }
+    
+    // update bmu position
+    for (k=0; k<d; k++) {
+      dif = p_data[in+k*n0] - p_node[bmu+k*m];
+      p_node[bmu+k*m] += lr * dif;
+    }
+  }
+  
+  return(node_pos);
 }
 
 
-arma::rowvec get_mean_manual(arma::mat& data, arma::uvec& bin) {
+arma::rowvec get_mean_inplace(arma::mat& data, arma::uvec& bin) {
 	int n = bin.n_elem, d = data.n_cols;
 	arma::rowvec mean_vec(d, arma::fill::zeros);
 
@@ -229,6 +145,21 @@ arma::rowvec get_mean_manual(arma::mat& data, arma::uvec& bin) {
 	}
 	mean_vec /= n;
 	return mean_vec;
+}
+
+
+// [[Rcpp::export]]
+arma::mat compute_centroids(arma::mat& data, arma::ivec& mapping, int k) {
+	int d = data.n_cols, i;
+	arma::mat centroids = arma::mat(k,d);
+	arma::uvec idx;
+
+	for (i=0; i<k; i++) {
+		idx = find(mapping == i+1);
+		centroids.row(i) = get_mean_inplace(data, idx);
+	}
+
+	return centroids;
 }
 
 
@@ -246,7 +177,7 @@ arma::mat get_centroids(arma::mat& data, arma::uvec& mapping,
 		if (k==0)
 			continue;
 
-		centroids.rows(start, start+k-1) = km(data, bin, k, n_passes);
+		centroids.rows(start, start+k-1) = som(data, bin, k, n_passes);
 
 		start = start + k;
 	}
@@ -255,18 +186,18 @@ arma::mat get_centroids(arma::mat& data, arma::uvec& mapping,
 }
 
 
-arma::uvec binning(arma::mat& filter, arma::vec& b1, arma::vec& b2) {
-	int n = filter.n_rows, m1 = b1.n_elem, m2 = b2.n_elem, i, j, k;
+arma::uvec binning(arma::vec& filter1, arma::vec& filter2, arma::vec& b1, arma::vec& b2) {
+	int n = filter1.n_elem, m1 = b1.n_elem, m2 = b2.n_elem, i, j, k;
 	double val;
 	arma::uvec bin_mapping = arma::uvec(n);
 
 	for (i=0; i<n; i++) {
-		val = filter(i,0);
+		val = filter1(i);
 		j=0;
 		while (val > b1(j) && j < m1-1)
 			j++;
 
-		val = filter(i,1);
+		val = filter2(i);
 		k=0;
 		while (val > b2(k) && k < m2-1) {
 			k++;
@@ -279,46 +210,33 @@ arma::uvec binning(arma::mat& filter, arma::vec& b1, arma::vec& b2) {
 }
 
 
-// [[Rcpp::export]]
-arma::mat compute_centroids(arma::mat& data, arma::ivec& mapping, int k) {
-	int d = data.n_cols, i;
-	arma::mat centroids = arma::mat(k,d);
-	arma::uvec idx;
-
-	for (i=0; i<k; i++) {
-		idx = find(mapping == i+1);
-		centroids.row(i) = get_mean_manual(data, idx);
-	}
-
-	return centroids;
-}
-
-
-arma::mat get_PCA(arma::mat& data, arma::mat& cova) {
-	int d = data.n_cols;
-	arma::mat means = mean(data), eigvec;
-
+arma::vec get_PCA(arma::mat& data, arma::mat& means, arma::mat& cova, int ind) {
+	arma::mat eigvec;
 	arma::vec eigval;
 	eig_sym(eigval, eigvec, cova);
 
-	arma::mat scores = data * eigvec.cols(d-2,d-1);
-	arma::mat diff = means * eigvec.cols(d-2,d-1);
-	scores.each_row() -= diff;
-
-	return scores;
+	arma::vec filter = data * eigvec.col(ind);
+	arma::vec diff = means * eigvec.col(ind);
+	filter -= diff(0);
+	return filter;
 }
 
 
-arma::vec get_boundaries(arma::mat& filter, arma::uvec& grid_size, int ind) {
-	int d = grid_size(ind), i;
-	double m=min(filter.col(ind)), M=max(filter.col(ind));
-	double width=(M-m)/d;
-	arma::vec b(d);
-
-	for (i=0; i<d; i++) {
-		b(i) = m + (i+1)*width;
-	}
+arma::vec get_boundaries(arma::vec& filter, int siz) {
+	arma::vec q = arma::linspace(1, siz, siz) / siz;
+	arma::vec b = quantile(filter, q);
 	return b;
+}
+
+arma::uvec get_bin_mapping(arma::mat& data, arma::mat& cova, arma::uvec& grid_size) {
+	int d = cova.n_cols;
+	arma::mat means = mean(data);
+	arma::vec filter1 = get_PCA(data, means, cova, d-1);
+	arma::vec filter2 = get_PCA(data, means, cova, d-2);
+	arma::vec b1 = get_boundaries(filter1, grid_size(0));
+	arma::vec b2 = get_boundaries(filter2, grid_size(1));
+	arma::uvec bin_mapping = binning(filter1, filter2, b1, b2);
+	return(bin_mapping);
 }
 
 
@@ -384,15 +302,6 @@ arma::vec allocate_nodes(arma::mat& data, arma::uvec& mapping,
 }
 
 
-arma::uvec get_bin_mapping(arma::mat& data, arma::mat& cova, arma::uvec& grid_size) {
-	arma::mat filter = get_PCA(data, cova);
-	arma::vec b1 = get_boundaries(filter, grid_size, 1);
-	arma::vec b2 = get_boundaries(filter, grid_size, 0);
-	arma::uvec bin_mapping = binning(filter, b1, b2);
-	return(bin_mapping);
-}
-
-
 // [[Rcpp::export]]
 arma::mat clustering_main(arma::mat& data, arma::mat& cova, arma::uvec& grid_size, 
 	int total_nodes, int min_node_size, int n_passes) {
@@ -402,7 +311,6 @@ arma::mat clustering_main(arma::mat& data, arma::mat& cova, arma::uvec& grid_siz
 	arma::mat centroids = get_centroids(data, bin_mapping, all_k, n_passes);
 	return centroids;
 }
-
 
 
 

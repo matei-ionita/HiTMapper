@@ -6,10 +6,10 @@
 \usage{
 HiTMapper(
   data,
-  total_nodes = 1000,
+  total_nodes = 100,
   resolution = 1,
   defs = NULL,
-  grid_size = c(5, 4),
+  grid_size = c(4, 3),
   min_node_size = 50,
   n_passes = 10
 )
