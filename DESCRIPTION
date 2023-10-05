@@ -14,7 +14,8 @@ Imports:
   igraph,
   ggraph,
   leidenAlg,
-  Rcpp
+  Rcpp,
+  RcppHNSW
 LinkingTo: Rcpp, RcppArmadillo
 License: GPL-3
 Encoding: UTF-8

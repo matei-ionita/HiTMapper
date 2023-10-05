@@ -16,6 +16,5 @@ for a subset of markers,
 to override those estimated by the algorithm.}
 }
 \description{
-Wrapper for community detection, labeling,
-and extracting features (cell type percentages).
+Wrapper for community detection and labeling.
 }

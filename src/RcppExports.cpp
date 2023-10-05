@@ -23,15 +23,27 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
-// assign_datapoints
-List assign_datapoints(arma::mat& data, arma::mat& centroids);
-RcppExport SEXP _HiTMapper_assign_datapoints(SEXP dataSEXP, SEXP centroidsSEXP) {
+// get_edgelist
+arma::mat get_edgelist(arma::mat& idx);
+RcppExport SEXP _HiTMapper_get_edgelist(SEXP idxSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< arma::mat& >::type data(dataSEXP);
-    Rcpp::traits::input_parameter< arma::mat& >::type centroids(centroidsSEXP);
-    rcpp_result_gen = Rcpp::wrap(assign_datapoints(data, centroids));
+    Rcpp::traits::input_parameter< arma::mat& >::type idx(idxSEXP);
+    rcpp_result_gen = Rcpp::wrap(get_edgelist(idx));
+    return rcpp_result_gen;
+END_RCPP
+}
+// sample_cells
+arma::ivec sample_cells(arma::ivec& mapping, arma::ivec& uniq, int m);
+RcppExport SEXP _HiTMapper_sample_cells(SEXP mappingSEXP, SEXP uniqSEXP, SEXP mSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< arma::ivec& >::type mapping(mappingSEXP);
+    Rcpp::traits::input_parameter< arma::ivec& >::type uniq(uniqSEXP);
+    Rcpp::traits::input_parameter< int >::type m(mSEXP);
+    rcpp_result_gen = Rcpp::wrap(sample_cells(mapping, uniq, m));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -67,7 +79,8 @@ END_RCPP
 
 static const R_CallMethodDef CallEntries[] = {
     {"_HiTMapper_predict_datapoints", (DL_FUNC) &_HiTMapper_predict_datapoints, 2},
-    {"_HiTMapper_assign_datapoints", (DL_FUNC) &_HiTMapper_assign_datapoints, 2},
+    {"_HiTMapper_get_edgelist", (DL_FUNC) &_HiTMapper_get_edgelist, 1},
+    {"_HiTMapper_sample_cells", (DL_FUNC) &_HiTMapper_sample_cells, 3},
     {"_HiTMapper_compute_centroids", (DL_FUNC) &_HiTMapper_compute_centroids, 3},
     {"_HiTMapper_clustering_main", (DL_FUNC) &_HiTMapper_clustering_main, 6},
     {NULL, NULL, 0}

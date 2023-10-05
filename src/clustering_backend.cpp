@@ -11,7 +11,7 @@ IntegerVector predict_datapoints(arma::mat& data, arma::mat& centroids) {
 	double* p_node = centroids.memptr();
 
 	for (i=0; i<n; i++) {
-		// find bmu (best matching unit)
+		// find bmu (best matching unit
 		dist = arma::datum::inf;
 
 		for (j=0; j<m; j++) {
@@ -34,50 +34,57 @@ IntegerVector predict_datapoints(arma::mat& data, arma::mat& centroids) {
 	return mapping;
 }
 
-void softmin(arma::rowvec& x) {
-	x = sqrt(x);
-	double mi = min(x);
-	x = exp(mi-x);
-	x.elem( find(x < 0.3) ).zeros();
-
-	x = x / sum(x);
-}
 
 // [[Rcpp::export]]
-List assign_datapoints(arma::mat& data, arma::mat& centroids) {
-	int n = data.n_rows, d = data.n_cols, m = centroids.n_rows;
-	double dist_curr, dif;
-	IntegerVector mapping = IntegerVector(n);
-	double* p_data = data.memptr();
-	double* p_node = centroids.memptr();
+arma::mat get_edgelist(arma::mat& idx) {
+	int n = idx.n_rows, m = idx.n_cols, cnt=0;
+	arma::mat edgelist = arma::mat(n*m,3);
+	arma::rowvec node_nbrs, nbr_nbrs, inter;
 
-	arma::rowvec dist = arma::rowvec(m);
-	arma::mat cos = arma::mat(m,m, arma::fill::zeros), this_cos;
+	for (int node=0; node<n; node++) {
+		node_nbrs = idx.row(node);
+		for (int i=0; i<m; i++) {
+			int nbr = idx(node,i)-1;
+			nbr_nbrs = idx.row(nbr);
+			inter = intersect(node_nbrs, nbr_nbrs);
 
-	for (int i=0; i<n; i++) {
-		// find bmu (best matching unit)
-
-		for (int j=0; j<m; j++) {
-			dist_curr=0;
-			for (int k=0; k<d; k++) {
-				dif = p_data[i+k*n] - p_node[j+k*m];
-				dist_curr += dif*dif;
+			if (node <= nbr || !any(nbr_nbrs==(node+1))) {
+				double n_inter = inter.n_elem;
+				edgelist(cnt,0) = node+1;
+				edgelist(cnt,1) = nbr+1;
+				edgelist(cnt,2) = n_inter / (2*m-n_inter);
+				cnt++;
 			}
-			dist(j) = dist_curr;
 		}
-
-		// assign data point to bmu
-		int bmu = dist.index_min();
-		mapping(i) = bmu+1;
-
-		// update cosine distances between nodes
-		softmin(dist);
-		arma::uvec q = find(dist);
-		this_cos = dist(q) * dist(q).t();
-		cos(q,q) += this_cos;
 	}
 
-	return List::create(Named("mapping") = mapping, _["cos"] = cos);
+	edgelist = edgelist.rows(0,cnt-1);
+
+	return edgelist;
+}
+
+
+// [[Rcpp::export]]
+arma::ivec sample_cells(arma::ivec& mapping, arma::ivec& uniq, int m) {
+ 
+    int start = 0, k = uniq.n_elem, i, j;
+    arma::ivec chosen = arma::ivec(k*m), tmp;
+    IntegerVector ind;
+    arma::uvec idx;
+  
+    for (j=0; j<k; j++) {
+      	idx = find(mapping==uniq(j));
+      	int n_idx = idx.n_elem;
+      	int n_sam = std::min(n_idx,m);
+      	ind = Rcpp::sample(n_idx, n_sam, false)-1;
+    
+      	for (i=0; i<n_sam; i++)
+        	chosen(i+start) = idx(ind(i))+1;
+        	start += n_sam;
+        }
+  
+    chosen = chosen.subvec(0, start-1);
+    return(chosen);
 }
 
 
@@ -102,8 +109,9 @@ arma::mat som(arma::mat& data, arma::uvec& bin, int m, int n_passes=10, double l
   for (i=0; i<n_passes*n; i++) {
   	if (i % s == 0)
   		ind = Rcpp::sample(n, s, true)-1;
-    // ind = Rcpp::sample(n, 1) -1;
-    // in = bin(ind(0));
+
+  	lr = 0.05 - 0.04 * (i+0.0001)/(n_passes*n);
+
     in = bin(ind(i % s));
 
     // find bmu (best matching unit)
@@ -223,10 +231,13 @@ arma::vec get_PCA(arma::mat& data, arma::mat& means, arma::mat& cova, int ind) {
 
 
 arma::vec get_boundaries(arma::vec& filter, int siz) {
-	arma::vec q = arma::linspace(1, siz, siz) / siz;
-	arma::vec b = quantile(filter, q);
+	arma::vec tmp = {0.02, 0.98};
+	arma::vec q = quantile(filter,tmp);
+	arma::vec b = arma::linspace(q(0), q(1), siz+1);
+	b = b(arma::span(1,siz));
 	return b;
 }
+
 
 arma::uvec get_bin_mapping(arma::mat& data, arma::mat& cova, arma::uvec& grid_size) {
 	int d = cova.n_cols;
@@ -254,49 +265,23 @@ arma::vec allocate(int total_nodes, arma::vec max_bin,
 	return allocate(total_nodes, max_bin, weight, alloc+alloc_new, depth+1);
 }
 
-arma::vec allocate_nodes(arma::mat& data, arma::uvec& mapping, 
-	int min_node_size, int total_nodes, double frac_sum_sq) {
 
-	arma::uvec un = unique(mapping);
-	arma::uvec bin;
-	int n_bins = un.n_elem, i, l, j, k, d=data.n_cols;
-	double v, s, sq, val;
+arma::vec allocate_nodes(arma::mat& data, arma::uvec& mapping, 
+	int min_node_size, int total_nodes) {
+
+	arma::uvec un = unique(mapping), bin;
+	int n_bins = un.n_elem, i, l;
 
 	arma::vec bin_length = arma::vec(n_bins);
-	arma::vec bin_var = arma::vec(n_bins);
-	arma::vec log_size = arma::vec(n_bins);
 
 	for (i=0; i<n_bins; i++) {
 		bin = find(mapping==un(i));
 		l = bin.n_elem;
 		bin_length(i) = l;
-
-		if (l < 2) {
-			bin_var(i) = 0;
-			log_size(i)=0;
-		}
-		else {
-			v=0;
-			for (k=0;k<d;k++) {
-				sq=0;
-				s=0;
-				for (j=0;j<l;j++) {
-					val=data(bin(j),k);
-					s+=val;
-					sq+=val*val;
-				}
-				s/=l;
-				sq/=l;
-				v+= (sq-s*s) * l/(l-1);
-			}
-			bin_var(i) = sqrt(v);
-			log_size(i) = log2(l);
-		}
 	}
 
 	arma::vec max_bin = ceil(bin_length / min_node_size);
-	arma::vec weight = frac_sum_sq * (bin_var / sum(bin_var)) +
-						(1-frac_sum_sq) * (log_size / sum(log_size));
+	arma::vec weight = arma::vec(n_bins, arma::fill::ones) / n_bins; 
 	arma::vec alloc(n_bins, arma::fill::zeros);
 	return allocate(total_nodes, max_bin, weight, alloc, 1);
 }
@@ -307,7 +292,7 @@ arma::mat clustering_main(arma::mat& data, arma::mat& cova, arma::uvec& grid_siz
 	int total_nodes, int min_node_size, int n_passes) {
 
 	arma::uvec bin_mapping = get_bin_mapping(data, cova, grid_size);
-	arma::vec all_k = allocate_nodes(data, bin_mapping, min_node_size, total_nodes, 1);
+	arma::vec all_k = allocate_nodes(data, bin_mapping, min_node_size, total_nodes);
 	arma::mat centroids = get_centroids(data, bin_mapping, all_k, n_passes);
 	return centroids;
 }

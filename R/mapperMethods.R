@@ -5,6 +5,7 @@
 #' @importFrom dplyr group_by summarise filter select mutate if_else pull
 #' @importFrom stringr str_split fixed
 #' @importFrom tibble tibble as_tibble
+#' @importFrom RcppHNSW hnsw_knn
 #' @import igraph
 #' @import ggraph
 #' @importFrom leidenAlg leiden.community
@@ -35,22 +36,17 @@ HiTMapper <- function(data, total_nodes=100,
   if(!is.matrix(data))
     stop("Please enter your data in matrix format.")
 
-  message("Clustering and creating graph...")
+  message("Clustering...")
   centroids <- clustering_main(data, cov(data), grid_size,
                                total_nodes, min_node_size, n_passes)
   
-  message("Mapping...")
-  l <- assign_datapoints(data, centroids)
-  mapping <- l$mapping
-  cosd <- l$cos
-  fac <- 1/sqrt(diag(cosd))
-  weights <- t(cosd*fac)*fac
+  message("Mapping datapoints to nodes...")
+  mapping <- predict_datapoints(data, centroids)
 
   colnames(centroids) <- colnames(data)
-  
-  gr <- get_graph(weights)
-  mapper <- list(gr=gr, centroids=centroids,
-                 mapping=mapping, weights=weights)
+  mapper <- list(centroids=centroids, mapping=mapping)
+  mapper$gr <- build_graph(data, mapping)
+
   if(!is.null(defs))
     mapper$defs <- defs
   
@@ -93,8 +89,7 @@ detect_communities <- function(mapper, data, resolution) {
 
 
 #' @title label_communities
-#' @description Wrapper for community detection, labeling,
-#' and extracting features (cell type percentages).
+#' @description Wrapper for community detection and labeling.
 #' @param mapper Existing mapper object.
 #' @param defs Data frame of phenotype definitions.
 #' @param thresholds Data frame of user-supplied thresholds,
@@ -118,9 +113,6 @@ label_communities <- function(mapper, defs, thresholds=NULL) {
   levels(mapper$community) <- labels
   row.names(mapper$community_medians) <- labels
   levels(mapper$clustering) <- labels
-
-  if (!is.null(mapper$features))
-    colnames(mapper$features) <- labels
 
   return(mapper)
 }

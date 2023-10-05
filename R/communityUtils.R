@@ -1,18 +1,42 @@
-leiden_clustering <- function(gr, resolution, out) {
+leiden_clustering <- function(gr, resolution=1) {
   leid <- leiden.community(gr, resolution=resolution)
   clust <- as.factor(leid$membership)
   # change 0-based to 1-based
   levels(clust) <- as.numeric(levels(clust)) + 1
-  
-  return(as.factor(clust))
-  
+  return(clust)
 }
 
 
-get_graph <- function(weights) {
-  gr <- graph_from_adjacency_matrix(weights, mode="undirected", weighted = TRUE)
-  # remove edges with tiny weights, to help plotting
-  gr <- delete_edges(gr, which(E(gr)$weight < 1e-3))
+build_graph <- function(data, mapping, m=10, k=20) {
+  # sel_list <- lapply(unique(mapping), function(i) {
+  #   mi <- which(mapping==i)
+  #   sample(mi, min(m, length(mi)))
+  # })
+  # sel <- unlist(sel_list)
+  chosen <- sample_cells(mapping, unique(mapping), m)
+  dat <- data[chosen,]
+  node_of_origin <- mapping[chosen]
+  # node_of_origin <- rep(unique(mapping), sapply(sel_list, length))
+
+  knn <- hnsw_knn(dat, k=k)
+  edgelist <- get_edgelist(knn$idx)
+  
+  df_edgelist <- tibble(ind1 = edgelist[,1],
+                        ind2 = edgelist[,2],
+                        weight = edgelist[,3]) %>%
+    mutate(node1 = node_of_origin[ind1],
+           node2 = node_of_origin[ind2]) %>%
+    group_by(node1, node2) %>%
+    summarise(weight=sum(weight)) %>%
+    dplyr::arrange(node2) %>%
+    tidyr::pivot_wider(names_from="node2", values_from="weight", values_fill=0) %>%
+    dplyr::arrange(node1)
+  sim <- as.matrix(df_edgelist)[,-1]
+  dia <- sqrt(diag(sim))
+  sim <- t(t(sim/dia)/dia)
+  sim <- sim + t(sim) - diag(1, nrow=nrow(sim))
+
+  gr <- graph_from_adjacency_matrix(sim, mode="undirected", weighted=TRUE)
   return(gr)
 }
 
@@ -28,17 +52,6 @@ parse_communities <- function(mapper, data) {
   }
   
   return(mapper)
-}
-
-
-get_contingency_table <- function(mapping, samples) {
-  # tabulate cluster percentages for all samples
-  base <- unname(table(samples)) %>% as.numeric()
-  tab <- table(mapping, samples) %>% as.matrix()
-  tab <- apply(tab, 1, function(row) row/base)
-  if(length(base)==1)
-    tab <- as.matrix(tab) %>% t()
-  return(tab)
 }
 
 

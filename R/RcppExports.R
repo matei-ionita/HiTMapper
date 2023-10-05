@@ -5,8 +5,12 @@ predict_datapoints <- function(data, centroids) {
     .Call(`_HiTMapper_predict_datapoints`, data, centroids)
 }
 
-assign_datapoints <- function(data, centroids) {
-    .Call(`_HiTMapper_assign_datapoints`, data, centroids)
+get_edgelist <- function(idx) {
+    .Call(`_HiTMapper_get_edgelist`, idx)
+}
+
+sample_cells <- function(mapping, uniq, m) {
+    .Call(`_HiTMapper_sample_cells`, mapping, uniq, m)
 }
 
 compute_centroids <- function(data, mapping, k) {
